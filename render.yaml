@@ -5,15 +5,4 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn server:app
     plan: free
-```
-
-4. **Ctrl + S** to save, close Notepad
-
----
-
-## ✅ Final check — your folder should look exactly like this:
-```
-📁 stock-scanner
-   ├── server.py
-   ├── requirements.txt
-   └── render.yaml
+    pythonVersion: "3.11.0"
