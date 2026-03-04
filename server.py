@@ -15,25 +15,32 @@ def scan(ticker):
         df = yf.download(ticker, period="7d", interval="15m", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
+        df = df.dropna()
 
-        df['EMA5']  = compute_ema(df['Close'], 5)
-        df['EMA10'] = compute_ema(df['Close'], 10)
+        if len(df) < 5:
+            df = yf.download(ticker, period="60d", interval="1d", progress=False)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            df = df.dropna()
+
+        df['EMA9']  = compute_ema(df['Close'], 9)
+        df['EMA21'] = compute_ema(df['Close'], 21)
         df = df.dropna()
 
         last = df.iloc[-1]
         prev = df.iloc[-2]
 
         signal = None
-        if prev['EMA5'] <= prev['EMA10'] and last['EMA5'] > last['EMA10']:
+        if prev['EMA9'] <= prev['EMA21'] and last['EMA9'] > last['EMA21']:
             signal = "BULLISH"
-        elif prev['EMA5'] >= prev['EMA10'] and last['EMA5'] < last['EMA10']:
+        elif prev['EMA9'] >= prev['EMA21'] and last['EMA9'] < last['EMA21']:
             signal = "BEARISH"
 
         return jsonify({
             "ticker":  ticker,
             "price":   round(float(last['Close']), 2),
-            "ema5":    round(float(last['EMA5']),  2),
-            "ema10":   round(float(last['EMA10']), 2),
+            "ema9":    round(float(last['EMA9']),  2),
+            "ema21":   round(float(last['EMA21']), 2),
             "signal":  signal,
             "history": [round(float(x), 2) for x in df['Close'].tail(20).tolist()]
         })
