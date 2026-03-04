@@ -1,11 +1,13 @@
 from flask import Flask, jsonify
 from flask_cors import CORS
 import yfinance as yf
-import pandas_ta as ta
 import pandas as pd
 
 app = Flask(__name__)
 CORS(app)
+
+def compute_ema(series, period):
+    return series.ewm(span=period, adjust=False).mean()
 
 @app.route("/scan/<ticker>")
 def scan(ticker):
@@ -14,8 +16,8 @@ def scan(ticker):
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        df['EMA5']  = ta.ema(df['Close'], length=5)
-        df['EMA10'] = ta.ema(df['Close'], length=10)
+        df['EMA5']  = compute_ema(df['Close'], 5)
+        df['EMA10'] = compute_ema(df['Close'], 10)
         df = df.dropna()
 
         last = df.iloc[-1]
@@ -44,21 +46,3 @@ def ping():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
-```
-
-6. Press **Ctrl + S** to save, then close Notepad
-
----
-
-## 📄 STEP 3 — Create `requirements.txt`
-
-1. Right-click inside the folder → **New** → **Text Document**
-2. Name it `requirements.txt` (remove the `.txt` the same way as before)
-3. Open with Notepad, paste this:
-```
-flask
-flask-cors
-yfinance
-pandas_ta
-pandas
-gunicorn
