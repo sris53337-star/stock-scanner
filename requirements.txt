@@ -1,8 +1,6 @@
 flask
 flask-cors
 yfinance
-pandas_ta==0.3.14b
 pandas
 gunicorn
-numpy
 
