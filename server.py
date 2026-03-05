@@ -2,10 +2,22 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 import yfinance as yf
 import pandas as pd
+import requests as req
 import os
 
 app = Flask(__name__)
 CORS(app)
+
+# ── Telegram Config ──────────────────────────────────────────────────────────
+TELEGRAM_TOKEN   = "YOUR_BOT_TOKEN_HERE"    # paste your token
+TELEGRAM_CHAT_ID = "YOUR_CHAT_ID_HERE"      # paste your chat ID
+
+def send_telegram(message):
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        req.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"})
+    except:
+        pass
 
 def compute_ema(series, period):
     return series.ewm(span=period, adjust=False).mean()
@@ -38,6 +50,9 @@ def load_watchlist():
     except:
         return ["ITC.NS", "RELIANCE.NS", "INFY.NS"]
 
+# Track sent signals to avoid duplicate alerts
+sent_signals = {}
+
 @app.route("/watchlist")
 def get_watchlist():
     return jsonify(load_watchlist())
@@ -56,7 +71,6 @@ def scan(ticker):
                 df.columns = df.columns.get_level_values(0)
             df = df.dropna()
 
-        # ── All 5 Indicators ────────────────────────
         df['EMA9']    = compute_ema(df['Close'], 9)
         df['EMA21']   = compute_ema(df['Close'], 21)
         df['RSI']     = compute_rsi(df['Close'], 14)
@@ -78,7 +92,6 @@ def scan(ticker):
         vol_avg   = int(last['VOL_AVG'])
         vol_ratio = round(volume / vol_avg, 2) if vol_avg > 0 else 0
 
-        # ── 5 Conditions ────────────────────────────
         ema_bullish = float(prev['EMA9']) <= float(prev['EMA21']) and ema9 > ema21
         ema_bearish = float(prev['EMA9']) >= float(prev['EMA21']) and ema9 < ema21
         vol_confirm = vol_ratio >= 2.0
@@ -86,11 +99,9 @@ def scan(ticker):
         rsi_bull_ok = 45 <= rsi <= 65
         rsi_bear_ok = 35 <= rsi <= 55
 
-        # ── Score out of 3 ──────────────────────────
         bull_score = sum([vol_confirm, above_vwap, rsi_bull_ok])
         bear_score = sum([vol_confirm, not above_vwap, rsi_bear_ok])
 
-        # ── Signal ──────────────────────────────────
         signal = None
         if ema_bullish and vol_confirm and above_vwap and rsi_bull_ok:
             signal = "BULLISH"
@@ -101,7 +112,6 @@ def scan(ticker):
         elif ema_bearish and bear_score >= 2:
             signal = "WEAK_BEARISH"
 
-        # ── Entry / SL / Target (1:2 RR via ATR) ───
         sl_points     = round(atr * 1.0, 2)
         target_points = round(atr * 2.0, 2)
 
@@ -115,6 +125,25 @@ def scan(ticker):
             target = round(price - target_points, 2)
         else:
             entry = sl = target = None
+
+        # ── Send Telegram alert for strong signals only ──
+        if signal in ("BULLISH", "BEARISH"):
+            signal_key = f"{ticker}_{signal}"
+            if sent_signals.get(signal_key) != round(price):
+                sent_signals[signal_key] = round(price)
+                emoji = "🚀" if signal == "BULLISH" else "⚠️"
+                msg = (
+                    f"{emoji} <b>INTRADAY {signal}</b>\n"
+                    f"📌 <b>{ticker}</b> @ ₹{round(price,2)}\n\n"
+                    f"✅ Entry:  ₹{entry}\n"
+                    f"🛑 SL:     ₹{sl}\n"
+                    f"🎯 Target: ₹{target}\n\n"
+                    f"📊 RSI: {rsi} | Vol: {vol_ratio}x\n"
+                    f"📈 VWAP: {'Above ✅' if above_vwap else 'Below ❌'}\n"
+                    f"⚡ ATR: ₹{round(atr,2)}\n\n"
+                    f"⏰ Exit by 3:20 PM IST"
+                )
+                send_telegram(msg)
 
         return jsonify({
             "ticker":     ticker,
