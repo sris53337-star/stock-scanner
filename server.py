@@ -9,8 +9,8 @@ app = Flask(__name__)
 CORS(app)
 
 # ── Telegram Config ──────────────────────────────────────────────────────────
-TELEGRAM_TOKEN   = "YOUR_BOT_TOKEN_HERE"    # paste your token
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID_HERE"      # paste your chat ID
+TELEGRAM_TOKEN   = "8635343116:AAHIbzRJfySP353WumkWpXn2iZcdKT9zIzU"
+TELEGRAM_CHAT_ID = "2071169564"
 
 def send_telegram(message):
     try:
@@ -173,3 +173,4 @@ def ping():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+
