@@ -1,21 +1,35 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 import yfinance as yf
 import pandas as pd
 import requests as req
 import os
+import threading
+import time
+from datetime import datetime
 
 app = Flask(__name__)
 CORS(app, origins="*", supports_credentials=False)
 
-# ── Telegram Config ──────────────────────────────────────────────────────────
+# ── Config ────────────────────────────────────────────────────────────────────
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+SHEETS_URL       = "https://script.google.com/macros/s/AKfycbzu0aDb-n4re6qw_RtkkAYA-EbdhQcTnS9DoDd4wxhb4DTMKE89SUFxqtoeAa2mBx_V/exec"
+CAPITAL          = 5000
+RISK_PCT         = 2
+active_trades    = {}  # tracks open trades for SL/Target monitoring
+eod_sent         = False
 
 def send_telegram(message):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        req.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"})
+        req.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}, timeout=10)
+    except:
+        pass
+
+def log_to_sheets(data):
+    try:
+        req.post(SHEETS_URL, json=data, timeout=10)
     except:
         pass
 
@@ -40,18 +54,145 @@ def compute_vwap(df):
     typical_price = (df['High'] + df['Low'] + df['Close']) / 3
     return (typical_price * df['Volume']).cumsum() / df['Volume'].cumsum()
 
+def calculate_position_size(entry, sl):
+    risk_amount   = CAPITAL * (RISK_PCT / 100)
+    risk_per_share = abs(entry - sl)
+    if risk_per_share == 0:
+        return 0, 0, 0, 0
+    shares     = int(risk_amount / risk_per_share)
+    cost       = round(shares * entry, 2)
+    max_loss   = round(shares * risk_per_share, 2)
+    max_gain   = round(max_loss * 2, 2)
+    return shares, cost, max_loss, max_gain
+
 def load_watchlist():
     try:
         with open("watchlist.txt", "r") as f:
-            return [
-                line.strip() for line in f
-                if line.strip() and not line.startswith('#')
-            ]
+            return [line.strip() for line in f if line.strip() and not line.startswith('#')]
     except:
         return ["ITC.NS", "RELIANCE.NS", "INFY.NS"]
 
-# Track sent signals to avoid duplicate alerts
 sent_signals = {}
+
+# ── Trade Monitor Thread ──────────────────────────────────────────────────────
+def monitor_trades():
+    global eod_sent
+    while True:
+        try:
+            now = datetime.now()
+            ist_hour   = (now.hour + 5) % 24
+            ist_minute = (now.minute + 30) % 60
+            if ist_minute >= 60:
+                ist_hour = (ist_hour + 1) % 24
+
+            # EOD summary at 3:35 PM IST
+            if ist_hour == 15 and ist_minute >= 35 and not eod_sent:
+                send_eod_summary()
+                eod_sent = True
+
+            # Reset EOD flag at midnight
+            if ist_hour == 0 and ist_minute == 0:
+                eod_sent = False
+                sent_signals.clear()
+                active_trades.clear()
+
+            # Check active trades
+            for ticker in list(active_trades.keys()):
+                trade = active_trades[ticker]
+                try:
+                    df = yf.download(ticker, period="1d", interval="5m", progress=False)
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = df.columns.get_level_values(0)
+                    if df.empty:
+                        continue
+                    current_price = float(df['Close'].iloc[-1])
+                    entry  = trade['entry']
+                    sl     = trade['sl']
+                    target = trade['target']
+                    signal = trade['signal']
+                    shares = trade['shares']
+
+                    result     = None
+                    exit_price = None
+
+                    if signal == 'BULLISH':
+                        if current_price >= target:
+                            result = 'TARGET HIT ✅'
+                            exit_price = target
+                        elif current_price <= sl:
+                            result = 'SL HIT ❌'
+                            exit_price = sl
+                    else:
+                        if current_price <= target:
+                            result = 'TARGET HIT ✅'
+                            exit_price = target
+                        elif current_price >= sl:
+                            result = 'SL HIT ❌'
+                            exit_price = sl
+
+                    # Force exit at 3:20 PM IST
+                    if ist_hour == 15 and ist_minute >= 20 and not result:
+                        result = 'MANUAL EXIT 📤'
+                        exit_price = current_price
+
+                    if result:
+                        pnl = round(shares * (exit_price - entry) * (1 if signal == 'BULLISH' else -1) - 40, 2)
+                        emoji = "🎯" if "TARGET" in result else "🛑" if "SL" in result else "📤"
+                        msg = (
+                            f"{emoji} <b>{result}</b>\n"
+                            f"📌 <b>{ticker}</b>\n\n"
+                            f"Entry:  ₹{entry}\n"
+                            f"Exit:   ₹{exit_price}\n"
+                            f"Shares: {shares}\n\n"
+                            f"💰 Net P&L: <b>₹{pnl}</b>\n"
+                            f"(after ₹40 brokerage)"
+                        )
+                        send_telegram(msg)
+                        log_to_sheets({
+                            "action": "update_result",
+                            "ticker": ticker,
+                            "result": result,
+                            "exit_price": exit_price,
+                            "pnl": pnl
+                        })
+                        del active_trades[ticker]
+                except:
+                    pass
+        except:
+            pass
+        time.sleep(300)  # check every 5 minutes
+
+def send_eod_summary():
+    try:
+        watchlist = load_watchlist()
+        bullish = [t for t, d in sent_signals.items() if d.get('signal') == 'BULLISH']
+        bearish = [t for t, d in sent_signals.items() if d.get('signal') == 'BEARISH']
+        total   = len(sent_signals)
+
+        msg = (
+            f"📊 <b>EOD SUMMARY</b> — {datetime.now().strftime('%d %b %Y')}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🚀 BULLISH signals: {len(bullish)}\n"
+            f"⚠️ BEARISH signals: {len(bearish)}\n"
+            f"📈 Total signals:   {total}\n"
+            f"🔍 Stocks scanned:  {len(watchlist)}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+        )
+        if bullish:
+            msg += f"🚀 Bullish: {', '.join([t.replace('.NS','') for t in bullish])}\n"
+        if bearish:
+            msg += f"⚠️ Bearish: {', '.join([t.replace('.NS','') for t in bearish])}\n"
+        if total == 0:
+            msg += "😴 No strong signals today\n"
+        msg += f"━━━━━━━━━━━━━━━━━━━━━\n"
+        msg += f"⏰ Market closed. See you tomorrow 9:15 AM!"
+        send_telegram(msg)
+    except:
+        pass
+
+# Start monitor thread
+monitor_thread = threading.Thread(target=monitor_trades, daemon=True)
+monitor_thread.start()
 
 @app.route("/watchlist")
 def get_watchlist():
@@ -66,10 +207,7 @@ def scan(ticker):
         df = df.dropna()
 
         if len(df) < 30:
-            df = yf.download(ticker, period="60d", interval="1d", progress=False)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            df = df.dropna()
+            return jsonify({"error": "Not enough data"}), 404
 
         df['EMA9']    = compute_ema(df['Close'], 9)
         df['EMA21']   = compute_ema(df['Close'], 21)
@@ -126,11 +264,13 @@ def scan(ticker):
         else:
             entry = sl = target = None
 
-        # ── Send Telegram alert for strong signals only ──
-        if signal in ("BULLISH", "BEARISH"):
+        # ── Send alert for strong signals only ───────────────────────────────
+        if signal in ("BULLISH", "BEARISH") and entry and sl:
             signal_key = f"{ticker}_{signal}"
-            if sent_signals.get(signal_key) != round(price):
-                sent_signals[signal_key] = round(price)
+            if sent_signals.get(signal_key, {}).get('price') != round(price):
+                shares, cost, max_loss, max_gain = calculate_position_size(entry, sl)
+                sent_signals[signal_key] = {'signal': signal, 'price': round(price)}
+
                 emoji = "🚀" if signal == "BULLISH" else "⚠️"
                 msg = (
                     f"{emoji} <b>INTRADAY {signal}</b>\n"
@@ -138,12 +278,44 @@ def scan(ticker):
                     f"✅ Entry:  ₹{entry}\n"
                     f"🛑 SL:     ₹{sl}\n"
                     f"🎯 Target: ₹{target}\n\n"
+                    f"💰 <b>POSITION SIZE:</b>\n"
+                    f"Capital:   ₹{CAPITAL}\n"
+                    f"Risk:      ₹{max_loss} ({RISK_PCT}%)\n"
+                    f"Shares:    {shares}\n"
+                    f"Cost:      ₹{cost}\n"
+                    f"Max Loss:  ₹{max_loss}\n"
+                    f"Max Gain:  ₹{max_gain}\n"
+                    f"Brokerage: ₹40\n\n"
                     f"📊 RSI: {rsi} | Vol: {vol_ratio}x\n"
                     f"📈 VWAP: {'Above ✅' if above_vwap else 'Below ❌'}\n"
                     f"⚡ ATR: ₹{round(atr,2)}\n\n"
                     f"⏰ Exit by 3:20 PM IST"
                 )
                 send_telegram(msg)
+
+                # Log to Google Sheets
+                now = datetime.now()
+                log_to_sheets({
+                    "date":      now.strftime("%d-%b-%Y"),
+                    "time":      now.strftime("%H:%M"),
+                    "ticker":    ticker,
+                    "signal":    signal,
+                    "entry":     entry,
+                    "sl":        sl,
+                    "target":    target,
+                    "shares":    shares,
+                    "cost":      cost,
+                    "max_loss":  max_loss,
+                    "max_gain":  max_gain,
+                    "rsi":       rsi,
+                    "vol_ratio": vol_ratio
+                })
+
+                # Add to active trades monitor
+                active_trades[ticker] = {
+                    'signal': signal, 'entry': entry,
+                    'sl': sl, 'target': target, 'shares': shares
+                }
 
         return jsonify({
             "ticker":     ticker,
@@ -167,13 +339,30 @@ def scan(ticker):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/backtest/<ticker>")
+def backtest(ticker):
+    try:
+        period = request.args.get("period", "3mo")
+        df = yf.download(ticker, period=period, interval="1d", progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df = df.dropna()
+        if len(df) < 30:
+            return jsonify({"error": "Not enough data"}), 404
+        return jsonify({
+            "dates":   [str(d)[:10] for d in df.index.tolist()],
+            "opens":   [round(float(x),2) for x in df['Open'].tolist()],
+            "highs":   [round(float(x),2) for x in df['High'].tolist()],
+            "lows":    [round(float(x),2) for x in df['Low'].tolist()],
+            "closes":  [round(float(x),2) for x in df['Close'].tolist()],
+            "volumes": [int(x) for x in df['Volume'].tolist()],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/ping")
 def ping():
     return "ok"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
-
-
-
-
