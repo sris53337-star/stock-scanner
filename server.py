@@ -277,7 +277,14 @@ def scan(ticker):
 
         if signal in ("BULLISH", "BEARISH") and entry and sl:
             signal_key = f"{ticker}_{signal}"
-            if signal_key not in sent_signals:
+
+            # No new trades after 2:00 PM IST
+            now_utc     = datetime.utcnow()
+            ist_minutes = now_utc.hour * 60 + now_utc.minute + 330
+            ist_hour    = (ist_minutes // 60) % 24
+            too_late    = ist_hour >= 14
+
+            if signal_key not in sent_signals and not too_late:
                 shares, cost, max_loss, max_gain = calculate_position_size(entry, sl)
                 net_gain  = max_gain - 40
                 direction = "BUY" if signal == "BULLISH" else "SELL"
