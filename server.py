@@ -6,6 +6,11 @@ import requests as req
 import os
 import threading
 import time
+import io
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from datetime import datetime
 
 app = Flask(__name__)
@@ -35,6 +40,45 @@ def send_telegram(message):
         }, timeout=10)
     except:
         pass
+
+def send_telegram_photo(image_bytes, caption=""):
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMediaGroup"
+        # Send as photo
+        url2 = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+        req.post(url2, data={
+            "chat_id": TELEGRAM_CHAT_ID,
+            "caption": caption,
+            "parse_mode": "HTML"
+        }, files={"photo": ("chart.png", image_bytes, "image/png")}, timeout=15)
+    except:
+        pass
+
+def send_telegram_album(images, caption=""):
+    """Send multiple images as album"""
+    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    try:
+        import json
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMediaGroup"
+        files = {}
+        media = []
+        for i, img_bytes in enumerate(images):
+            key = f"photo{i}"
+            files[key] = (f"chart{i}.png", img_bytes, "image/png")
+            item = {"type": "photo", "media": f"attach://{key}"}
+            if i == 0:
+                item["caption"] = caption
+                item["parse_mode"] = "HTML"
+            media.append(item)
+        req.post(url, data={
+            "chat_id": TELEGRAM_CHAT_ID,
+            "media": json.dumps(media)
+        }, files=files, timeout=20)
+    except Exception as e:
+        print(f"Album error: {e}")
 
 def log_to_sheets(data):
     try:
@@ -68,9 +112,9 @@ def calculate_position_size(entry, sl):
     risk_per_share = abs(entry - sl)
     if risk_per_share == 0 or entry == 0:
         return 0, 0, 0, 0
-    risk_based      = int(risk_amount / risk_per_share)
-    capital_based   = int(CAPITAL / entry)          # max shares we can afford
-    shares          = min(risk_based, capital_based) # never exceed capital!
+    risk_based    = int(risk_amount / risk_per_share)
+    capital_based = int(CAPITAL / entry)
+    shares        = min(risk_based, capital_based)
     if shares <= 0:
         return 0, 0, 0, 0
     cost     = round(shares * entry, 2)
@@ -86,15 +130,247 @@ def load_watchlist():
     except:
         return ["ITC.NS", "RELIANCE.NS", "INFY.NS"]
 
+# ── Chart Generator ───────────────────────────────────────────────────────────
+def generate_chart(ticker, signal, entry, sl, target, interval="15m", period="5d", title="15 MIN"):
+    try:
+        df = yf.download(ticker, period=period, interval=interval, progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df = df.dropna()
+        if len(df) < 10:
+            return None
+
+        # Use last 40 candles
+        df = df.tail(40)
+        df['EMA9']  = compute_ema(df['Close'], 9)
+        df['EMA21'] = compute_ema(df['Close'], 21)
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6),
+                                        gridspec_kw={'height_ratios': [3, 1]},
+                                        facecolor='#0a0a0a')
+        ax1.set_facecolor('#0d0d0d')
+        ax2.set_facecolor('#0d0d0d')
+
+        # Draw candles
+        for i, (idx, row) in enumerate(df.iterrows()):
+            o, h, l, c = row['Open'], row['High'], row['Low'], row['Close']
+            color = '#00ff88' if c >= o else '#ff4455'
+            # Wick
+            ax1.plot([i, i], [l, h], color=color, linewidth=0.8, alpha=0.7)
+            # Body
+            ax1.bar(i, abs(c - o), bottom=min(c, o),
+                    color=color, alpha=0.85, width=0.6)
+
+        # EMA lines
+        ax1.plot(range(len(df)), df['EMA9'].values,
+                 color='#58a6ff', linewidth=1.5, label='EMA9', alpha=0.9)
+        ax1.plot(range(len(df)), df['EMA21'].values,
+                 color='#ff8800', linewidth=1.5, label='EMA21', alpha=0.9)
+
+        # Entry / SL / Target lines
+        ax1.axhline(y=entry,  color='#58a6ff', linestyle='--', linewidth=1.2, alpha=0.8)
+        ax1.axhline(y=sl,     color='#ff4455', linestyle='--', linewidth=1.2, alpha=0.8)
+        ax1.axhline(y=target, color='#00ff88', linestyle='--', linewidth=1.2, alpha=0.8)
+
+        # Labels on lines
+        ax1.text(len(df)-1, target, f' TGT ₹{target}', color='#00ff88',
+                 fontsize=7, va='bottom', fontfamily='monospace')
+        ax1.text(len(df)-1, entry,  f' ENT ₹{entry}',  color='#58a6ff',
+                 fontsize=7, va='bottom', fontfamily='monospace')
+        ax1.text(len(df)-1, sl,     f' SL  ₹{sl}',     color='#ff4455',
+                 fontsize=7, va='top',    fontfamily='monospace')
+
+        # Volume bars
+        for i, (idx, row) in enumerate(df.iterrows()):
+            color = '#00ff8840' if row['Close'] >= row['Open'] else '#ff445540'
+            ax2.bar(i, row['Volume'], color=color, width=0.6)
+
+        # Styling
+        sig_color = '#00ff88' if signal == 'BULLISH' else '#ff4455'
+        sig_emoji = '🚀' if signal == 'BULLISH' else '⚠️'
+        ax1.set_title(f'{sig_emoji} {ticker.replace(".NS","")} — {signal} | {title} CHART',
+                      color=sig_color, fontsize=11, fontfamily='monospace',
+                      fontweight='bold', pad=8)
+
+        for ax in [ax1, ax2]:
+            ax.tick_params(colors='#444', labelsize=7)
+            ax.spines['bottom'].set_color('#222')
+            ax.spines['top'].set_color('#222')
+            ax.spines['left'].set_color('#222')
+            ax.spines['right'].set_color('#222')
+            ax.yaxis.label.set_color('#444')
+            ax.xaxis.label.set_color('#444')
+
+        ax1.tick_params(axis='x', labelbottom=False)
+        ax1.set_ylabel('Price (₹)', color='#444', fontsize=8)
+        ax2.set_ylabel('Volume', color='#444', fontsize=8)
+
+        # X axis dates
+        step = max(1, len(df)//6)
+        ax2.set_xticks(range(0, len(df), step))
+        ax2.set_xticklabels(
+            [df.index[i].strftime('%d %b %H:%M') for i in range(0, len(df), step)],
+            rotation=20, fontsize=6, color='#444'
+        )
+
+        ax1.legend(loc='upper left', facecolor='#111', edgecolor='#222',
+                   labelcolor='white', fontsize=8)
+
+        plt.tight_layout(pad=1.0)
+
+        # Save to bytes
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=120,
+                    facecolor='#0a0a0a', bbox_inches='tight')
+        plt.close()
+        buf.seek(0)
+        return buf.read()
+
+    except Exception as e:
+        print(f"Chart error: {e}")
+        return None
+
+def generate_all_charts(ticker, signal, entry, sl, target):
+    """Generate 4 charts: 5min, 15min, 1hr, Daily"""
+    charts = []
+
+    # Chart 1: 5 min (precise entry timing)
+    c1 = generate_chart(ticker, signal, entry, sl, target,
+                        interval="5m", period="2d", title="5 MIN")
+    if c1: charts.append(c1)
+
+    # Chart 2: 15 min (intraday detail)
+    c2 = generate_chart(ticker, signal, entry, sl, target,
+                        interval="15m", period="5d", title="15 MIN")
+    if c2: charts.append(c2)
+
+    # Chart 3: 1 hour (trend confirmation)
+    c3 = generate_chart(ticker, signal, entry, sl, target,
+                        interval="1h", period="1mo", title="1 HOUR")
+    if c3: charts.append(c3)
+
+    # Chart 4: Daily (big picture)
+    c4 = generate_chart(ticker, signal, entry, sl, target,
+                        interval="1d", period="3mo", title="DAILY")
+    if c4: charts.append(c4)
+
+    return charts
+
+# ── Result Chart Generator ───────────────────────────────────────────────────
+def generate_result_chart(ticker, signal, entry, sl, target, exit_price, result, pnl, shares):
+    try:
+        df = yf.download(ticker, period="5d", interval="15m", progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df = df.dropna()
+        if len(df) < 10:
+            return None
+
+        df = df.tail(50)
+        df['EMA9']  = compute_ema(df['Close'], 9)
+        df['EMA21'] = compute_ema(df['Close'], 21)
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6),
+                                        gridspec_kw={'height_ratios': [3, 1]},
+                                        facecolor='#0a0a0a')
+        ax1.set_facecolor('#0d0d0d')
+        ax2.set_facecolor('#0d0d0d')
+
+        # Draw candles
+        for i, (idx, row) in enumerate(df.iterrows()):
+            o, h, l, c = row['Open'], row['High'], row['Low'], row['Close']
+            color = '#00ff88' if c >= o else '#ff4455'
+            ax1.plot([i, i], [l, h], color=color, linewidth=0.8, alpha=0.7)
+            ax1.bar(i, abs(c - o), bottom=min(c, o),
+                    color=color, alpha=0.85, width=0.6)
+
+        # EMA lines
+        ax1.plot(range(len(df)), df['EMA9'].values,
+                 color='#58a6ff', linewidth=1.5, label='EMA9', alpha=0.9)
+        ax1.plot(range(len(df)), df['EMA21'].values,
+                 color='#ff8800', linewidth=1.5, label='EMA21', alpha=0.9)
+
+        # Shade profit/loss zone
+        is_win = "TARGET" in result
+        zone_color = '#00ff8820' if is_win else '#ff445520'
+        ax1.axhspan(min(entry, exit_price), max(entry, exit_price),
+                    alpha=0.3, color='#00ff88' if is_win else '#ff4455')
+
+        # Key levels
+        ax1.axhline(y=entry,      color='#58a6ff', linestyle='--', linewidth=1.5, alpha=0.9)
+        ax1.axhline(y=sl,         color='#ff4455', linestyle='--', linewidth=1.0, alpha=0.6)
+        ax1.axhline(y=target,     color='#00ff88', linestyle='--', linewidth=1.0, alpha=0.6)
+        ax1.axhline(y=exit_price, color='#ffcc00', linestyle='-',  linewidth=2.0, alpha=0.9)
+
+        # Labels
+        ax1.text(len(df)-1, target,     f' TGT ₹{target}',     color='#00ff88', fontsize=7, va='bottom', fontfamily='monospace')
+        ax1.text(len(df)-1, entry,      f' ENT ₹{entry}',      color='#58a6ff', fontsize=7, va='bottom', fontfamily='monospace')
+        ax1.text(len(df)-1, sl,         f' SL  ₹{sl}',         color='#ff4455', fontsize=7, va='top',    fontfamily='monospace')
+        ax1.text(len(df)-1, exit_price, f' EXIT ₹{exit_price}',color='#ffcc00', fontsize=8, va='bottom', fontfamily='monospace', fontweight='bold')
+
+        # P&L annotation in center
+        pnl_color = '#00ff88' if pnl >= 0 else '#ff4455'
+        pnl_text  = f"{'✅ PROFIT' if pnl >= 0 else '❌ LOSS'}  ₹{abs(pnl)}  ({shares} shares)"
+        ax1.text(0.5, 0.97, pnl_text,
+                 transform=ax1.transAxes,
+                 color=pnl_color, fontsize=10, fontweight='bold',
+                 ha='center', va='top', fontfamily='monospace',
+                 bbox=dict(boxstyle='round,pad=0.3', facecolor='#111', edgecolor=pnl_color, alpha=0.8))
+
+        # Volume bars
+        for i, (idx, row) in enumerate(df.iterrows()):
+            color = '#00ff8840' if row['Close'] >= row['Open'] else '#ff445540'
+            ax2.bar(i, row['Volume'], color=color, width=0.6)
+
+        # Title
+        result_emoji = "🎯" if "TARGET" in result else "🛑" if "SL" in result else "📤"
+        ax1.set_title(
+            f'{result_emoji} {ticker.replace(".NS","")} — {result} | Net P&L: ₹{pnl}',
+            color=pnl_color, fontsize=11, fontfamily='monospace',
+            fontweight='bold', pad=8
+        )
+
+        for ax in [ax1, ax2]:
+            ax.tick_params(colors='#444', labelsize=7)
+            ax.spines['bottom'].set_color('#222')
+            ax.spines['top'].set_color('#222')
+            ax.spines['left'].set_color('#222')
+            ax.spines['right'].set_color('#222')
+
+        ax1.tick_params(axis='x', labelbottom=False)
+        ax1.set_ylabel('Price (₹)', color='#444', fontsize=8)
+        ax2.set_ylabel('Volume',    color='#444', fontsize=8)
+
+        step = max(1, len(df)//6)
+        ax2.set_xticks(range(0, len(df), step))
+        ax2.set_xticklabels(
+            [df.index[i].strftime('%d %b %H:%M') for i in range(0, len(df), step)],
+            rotation=20, fontsize=6, color='#444'
+        )
+        ax1.legend(loc='upper left', facecolor='#111', edgecolor='#222',
+                   labelcolor='white', fontsize=8)
+
+        plt.tight_layout(pad=1.0)
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=120,
+                    facecolor='#0a0a0a', bbox_inches='tight')
+        plt.close()
+        buf.seek(0)
+        return buf.read()
+
+    except Exception as e:
+        print(f"Result chart error: {e}")
+        return None
+
 # ── Trade Monitor Thread ──────────────────────────────────────────────────────
 def monitor_trades():
     global eod_sent
     while True:
         try:
             now = datetime.utcnow()
-            ist_total_minutes = now.hour * 60 + now.minute + 330
-            ist_hour   = (ist_total_minutes // 60) % 24
-            ist_minute = ist_total_minutes % 60
+            ist_minutes = now.hour * 60 + now.minute + 330
+            ist_hour    = (ist_minutes // 60) % 24
+            ist_minute  = ist_minutes % 60
 
             if ist_hour == 15 and ist_minute >= 35 and not eod_sent:
                 send_eod_summary()
@@ -148,6 +424,16 @@ def monitor_trades():
                                       (1 if signal == 'BULLISH' else -1) - 40, 2)
                         emoji = ("🎯" if "TARGET" in result
                                  else "🛑" if "SL" in result else "📤")
+
+                        # Generate result chart
+                        result_chart = generate_result_chart(
+                            ticker, signal, entry, sl, target,
+                            exit_price, result, pnl, shares
+                        )
+                        if result_chart:
+                            send_telegram_photo(result_chart,
+                                caption=f"{emoji} {ticker.replace('.NS','')} — {result} | P&L: ₹{pnl}")
+
                         msg = (
                             f"{emoji} <b>{result}</b>\n"
                             f"📌 <b>{ticker}</b>\n\n"
@@ -251,8 +537,8 @@ def scan(ticker):
         rsi_bull_ok  = 47 <= rsi <= 63
         rsi_bear_ok  = 40 <= rsi <= 58
 
-        bull_score = sum([vol_ok, above_vwap,      rsi_bull_ok])
-        bear_score = sum([vol_ok, not above_vwap,  rsi_bear_ok])
+        bull_score = sum([vol_ok, above_vwap,     rsi_bull_ok])
+        bear_score = sum([vol_ok, not above_vwap, rsi_bear_ok])
 
         signal = None
         if ema_bullish and vol_ok and above_vwap and rsi_bull_ok:
@@ -289,9 +575,14 @@ def scan(ticker):
                 net_gain  = max_gain - 40
                 direction = "BUY" if signal == "BULLISH" else "SELL"
                 emoji     = "🚀" if signal == "BULLISH" else "⚠️"
+                tv_symbol = ticker.replace('.NS', '')
 
                 sent_signals[signal_key] = {'signal': signal}
 
+                # ── Generate 3 charts ────────────────────────────────────────
+                charts = generate_all_charts(ticker, signal, entry, sl, target)
+
+                # ── Text alert ───────────────────────────────────────────────
                 msg = (
                     f"{emoji} <b>INTRADAY {signal}</b>\n"
                     f"📌 <b>{ticker}</b> @ ₹{round(price, 2)}\n\n"
@@ -308,10 +599,16 @@ def scan(ticker):
                     f"📊 RSI: {rsi} | Vol: {vol_ratio}x\n"
                     f"📈 VWAP: {'Above ✅' if above_vwap else 'Below ❌'}\n"
                     f"⚡ ATR: ₹{atr_val}\n\n"
+                    f"📊 <a href='https://www.tradingview.com/chart/?symbol=NSE:{tv_symbol}'>View on TradingView</a>\n\n"
                     f"⏰ Exit by 3:20 PM IST"
                 )
+
+                # Send charts first as album, then text
+                if charts:
+                    send_telegram_album(charts, caption=f"{emoji} {ticker.replace('.NS','')} — {signal}")
                 send_telegram(msg)
 
+                # Log to Google Sheets
                 now = datetime.utcnow()
                 log_to_sheets({
                     "date":      now.strftime("%d-%b-%Y"),
