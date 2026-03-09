@@ -7,4 +7,3 @@ requests
 matplotlib
 mplfinance
 numpy
-
