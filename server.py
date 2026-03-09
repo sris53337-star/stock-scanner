@@ -12,6 +12,10 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from datetime import datetime
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 
 app = Flask(__name__)
 CORS(app, origins="*", supports_credentials=False)
@@ -22,6 +26,11 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 SHEETS_URL       = "https://script.google.com/macros/s/AKfycbzu0aDb-n4re6qw_RtkkAYA-EbdhQcTnS9DoDd4wxhb4DTMKE89SUFxqtoeAa2mBx_V/exec"
 CAPITAL          = 5000
 RISK_PCT         = 2
+
+# Email config
+EMAIL_FROM     = os.environ.get("EMAIL_FROM", "")      # your gmail
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "")  # gmail app password
+EMAIL_TO       = os.environ.get("EMAIL_TO", "")        # recipient email
 
 sent_signals  = {}
 active_trades = {}
@@ -79,6 +88,36 @@ def send_telegram_album(images, caption=""):
         }, files=files, timeout=20)
     except Exception as e:
         print(f"Album error: {e}")
+
+def send_email(subject, html_body, images=None):
+    """Send email with optional chart images"""
+    if not EMAIL_FROM or not EMAIL_PASSWORD or not EMAIL_TO:
+        return
+    try:
+        msg = MIMEMultipart('related')
+        msg['From']    = EMAIL_FROM
+        msg['To']      = EMAIL_TO
+        msg['Subject'] = subject
+
+        # HTML body
+        alt = MIMEMultipart('alternative')
+        msg.attach(alt)
+        alt.attach(MIMEText(html_body, 'html'))
+
+        # Attach charts as inline images
+        if images:
+            for i, img_bytes in enumerate(images):
+                img = MIMEImage(img_bytes)
+                img.add_header('Content-ID', f'<chart{i}>')
+                img.add_header('Content-Disposition', 'inline',
+                               filename=f'chart{i}.png')
+                msg.attach(img)
+
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+            smtp.login(EMAIL_FROM, EMAIL_PASSWORD)
+            smtp.send_message(msg)
+    except Exception as e:
+        print(f"Email error: {e}")
 
 def log_to_sheets(data):
     try:
@@ -608,6 +647,51 @@ def scan(ticker):
                     send_telegram_album(charts, caption=f"{emoji} {ticker.replace('.NS','')} — {signal}")
                 send_telegram(msg)
 
+                # Send email alert
+                tv_link = f"https://www.tradingview.com/chart/?symbol=NSE:{tv_symbol}"
+                chart_tags = "".join([f'<img src="cid:chart{i}" style="width:100%;border-radius:8px;margin-bottom:8px">' for i in range(len(charts))])
+                email_html = f"""
+                <div style="background:#0a0a0a;color:#e0e0e0;font-family:monospace;padding:24px;border-radius:12px;max-width:600px">
+                  <h2 style="color:{'#00ff88' if signal=='BULLISH' else '#ff4455'};margin-bottom:4px">
+                    {'🚀' if signal=='BULLISH' else '⚠️'} INTRADAY {signal}
+                  </h2>
+                  <h3 style="color:#fff;margin-bottom:16px">{ticker} @ ₹{round(price,2)}</h3>
+                  {chart_tags}
+                  <table style="width:100%;border-collapse:collapse;margin:16px 0">
+                    <tr>
+                      <td style="padding:8px;background:#111;border:1px solid #222;color:#58a6ff">✅ ENTRY</td>
+                      <td style="padding:8px;background:#111;border:1px solid #222;color:#58a6ff;font-weight:bold">₹{entry}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:8px;background:#111;border:1px solid #222;color:#ff4455">🛑 STOP LOSS</td>
+                      <td style="padding:8px;background:#111;border:1px solid #222;color:#ff4455;font-weight:bold">₹{sl}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:8px;background:#111;border:1px solid #222;color:#00ff88">🎯 TARGET</td>
+                      <td style="padding:8px;background:#111;border:1px solid #222;color:#00ff88;font-weight:bold">₹{target}</td>
+                    </tr>
+                  </table>
+                  <div style="background:#111;border:1px solid #222;padding:12px;border-radius:8px;margin-bottom:16px">
+                    <p style="color:#888;margin:0 0 8px">💰 POSITION SIZE</p>
+                    <p style="margin:4px 0">Action: <b style="color:#fff">{direction} {shares} shares</b></p>
+                    <p style="margin:4px 0">Cost: ₹{cost} | Max Loss: ₹{max_loss} | Net Gain: ₹{net_gain}</p>
+                  </div>
+                  <div style="background:#111;border:1px solid #222;padding:12px;border-radius:8px;margin-bottom:16px">
+                    <p style="margin:4px 0">📊 RSI: {rsi} | Vol: {vol_ratio}x | ATR: ₹{atr_val}</p>
+                    <p style="margin:4px 0">📈 VWAP: {'Above ✅' if above_vwap else 'Below ❌'}</p>
+                  </div>
+                  <a href="{tv_link}" style="display:block;background:#1a1a2e;color:#58a6ff;padding:10px;text-align:center;border-radius:8px;text-decoration:none;margin-bottom:16px">
+                    📊 View on TradingView →
+                  </a>
+                  <p style="color:#555;font-size:11px;text-align:center">⚠️ Educational only. Not financial advice. Exit by 3:20 PM IST.</p>
+                </div>
+                """
+                send_email(
+                    subject=f"{'🚀' if signal=='BULLISH' else '⚠️'} {ticker.replace('.NS','')} {signal} @ ₹{round(price,2)}",
+                    html_body=email_html,
+                    images=charts
+                )
+
                 # Log to Google Sheets
                 now = datetime.utcnow()
                 log_to_sheets({
@@ -675,6 +759,36 @@ def backtest(ticker):
             "closes":  [round(float(x), 2) for x in df['Close'].tolist()],
             "volumes": [int(x) for x in df['Volume'].tolist()],
         })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/test")
+def test_alert():
+    try:
+        test_charts = generate_all_charts("SBIN.NS", "BULLISH", 812.0, 808.0, 820.0)
+        msg = (
+            f"🧪 <b>TEST ALERT — System Working!</b>\n"
+            f"📌 <b>SBIN</b> @ ₹812.00\n\n"
+            f"✅ Entry:  ₹812.00\n"
+            f"🛑 SL:     ₹808.00\n"
+            f"🎯 Target: ₹820.00\n\n"
+            f"💰 <b>POSITION SIZE:</b>\n"
+            f"Action:    <b>BUY 25 shares</b>\n"
+            f"Cost:      ₹4,900\n"
+            f"Max Loss:  ₹100\n"
+            f"Max Gain:  ₹200\n"
+            f"Net Gain:  ₹160\n\n"
+            f"📊 RSI: 55.0 | Vol: 2.1x\n"
+            f"📈 VWAP: Above ✅\n"
+            f"⚡ ATR: ₹4.0\n\n"
+            f"📊 <a href='https://www.tradingview.com/chart/?symbol=NSE:SBIN'>View on TradingView</a>\n\n"
+            f"⏰ THIS IS A TEST — NOT A REAL SIGNAL"
+        )
+        if test_charts:
+            send_telegram_album(test_charts,
+                caption="🧪 TEST ALERT — SBIN BULLISH")
+        send_telegram(msg)
+        return jsonify({"status": "✅ Test alert sent!", "charts": len(test_charts)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
