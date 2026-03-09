@@ -7,10 +7,7 @@ import os
 import threading
 import time
 import io
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+# matplotlib imported lazily inside functions
 from datetime import datetime
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -172,6 +169,9 @@ def load_watchlist():
 # ── Chart Generator ───────────────────────────────────────────────────────────
 def generate_chart(ticker, signal, entry, sl, target, interval="15m", period="5d", title="15 MIN"):
     try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
         df = yf.download(ticker, period=period, interval=interval, progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
@@ -298,6 +298,9 @@ def generate_all_charts(ticker, signal, entry, sl, target):
 # ── Result Chart Generator ───────────────────────────────────────────────────
 def generate_result_chart(ticker, signal, entry, sl, target, exit_price, result, pnl, shares):
     try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
         df = yf.download(ticker, period="5d", interval="15m", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
