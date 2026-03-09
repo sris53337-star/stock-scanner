@@ -226,8 +226,8 @@ def generate_chart(ticker, signal, entry, sl, target, interval="15m", period="5d
 
         # Styling
         sig_color = '#00ff88' if signal == 'BULLISH' else '#ff4455'
-        sig_emoji = '🚀' if signal == 'BULLISH' else '⚠️'
-        ax1.set_title(f'{sig_emoji} {ticker.replace(".NS","")} — {signal} | {title} CHART',
+        sig_emoji = '[BULL]' if signal == 'BULLISH' else '[BEAR]'
+        ax1.set_title(f'{sig_emoji} {ticker.replace(".NS","")} -- {signal} | {title} CHART',
                       color=sig_color, fontsize=11, fontfamily='monospace',
                       fontweight='bold', pad=8)
 
@@ -352,7 +352,7 @@ def generate_result_chart(ticker, signal, entry, sl, target, exit_price, result,
 
         # P&L annotation in center
         pnl_color = '#00ff88' if pnl >= 0 else '#ff4455'
-        pnl_text  = f"{'✅ PROFIT' if pnl >= 0 else '❌ LOSS'}  ₹{abs(pnl)}  ({shares} shares)"
+        pnl_text  = f"{'PROFIT' if pnl >= 0 else 'LOSS'}  Rs.{abs(pnl)}  ({shares} shares)"
         ax1.text(0.5, 0.97, pnl_text,
                  transform=ax1.transAxes,
                  color=pnl_color, fontsize=10, fontweight='bold',
@@ -365,9 +365,9 @@ def generate_result_chart(ticker, signal, entry, sl, target, exit_price, result,
             ax2.bar(i, row['Volume'], color=color, width=0.6)
 
         # Title
-        result_emoji = "🎯" if "TARGET" in result else "🛑" if "SL" in result else "📤"
+        result_emoji = '[TGT]' if 'TARGET' in result else '[SL]' if 'SL' in result else '[EXIT]'
         ax1.set_title(
-            f'{result_emoji} {ticker.replace(".NS","")} — {result} | Net P&L: ₹{pnl}',
+            f'{result_emoji} {ticker.replace(".NS","")} -- {result} | Net P&L: Rs.{pnl}',
             color=pnl_color, fontsize=11, fontfamily='monospace',
             fontweight='bold', pad=8
         )
