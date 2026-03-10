@@ -88,7 +88,9 @@ def send_telegram_album(images, caption=""):
 
 def send_email(subject, html_body, images=None):
     """Send email with optional chart images"""
+    print(f"EMAIL DEBUG: FROM={EMAIL_FROM} TO={EMAIL_TO} PWD={'SET' if EMAIL_PASSWORD else 'MISSING'}")
     if not EMAIL_FROM or not EMAIL_PASSWORD or not EMAIL_TO:
+        print("EMAIL DEBUG: Missing credentials!")
         return
     try:
         msg = MIMEMultipart('related')
@@ -110,11 +112,13 @@ def send_email(subject, html_body, images=None):
                                filename=f'chart{i}.png')
                 msg.attach(img)
 
+        print("EMAIL DEBUG: Connecting to Gmail SMTP...")
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
             smtp.login(EMAIL_FROM, EMAIL_PASSWORD)
             smtp.send_message(msg)
+            print("EMAIL DEBUG: Email sent successfully!")
     except Exception as e:
-        print(f"Email error: {e}")
+        print(f"EMAIL ERROR: {e}")
 
 def log_to_sheets(data):
     try:
