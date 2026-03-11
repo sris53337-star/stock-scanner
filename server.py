@@ -599,10 +599,8 @@ def scan(ticker):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
-     
         if df5  is not None: del df5
         if df1h is not None: del df1h
-        gc.collect()
 
 # ── Other Routes ──────────────────────────────────────────────────────────────
 @app.route("/watchlist")
@@ -669,6 +667,54 @@ def test_alert():
 @app.route("/ping")
 def ping():
     return "ok"
+
+# ── Auto-Scan Loop ────────────────────────────────────────────────────────────
+_scan_running = False   # prevents two scan cycles overlapping
+
+def auto_scan_loop():
+    global _scan_running
+    time.sleep(150)     # offset by 2.5 mins so monitor_thread and scan_thread
+                        # never fire at the same time (monitor fires at 0,5,10...
+                        # scan fires at 2.5, 7.5, 12.5... mins)
+    print("Auto-scan loop started.")
+    while True:
+        try:
+            now      = datetime.utcnow()
+            ist_mins = now.hour * 60 + now.minute + 330
+            ist_hour = (ist_mins // 60) % 24
+            ist_min  = ist_mins % 60
+
+            market_open  = (ist_hour > 9) or (ist_hour == 9 and ist_min >= 30)
+            market_close = (ist_hour > 15) or (ist_hour == 15 and ist_min >= 15)
+            in_market    = market_open and not market_close
+
+            if in_market and not _scan_running:
+                _scan_running = True
+                watchlist = load_watchlist()
+                print(f"Auto-scan START: {len(watchlist)} stocks | IST {ist_hour:02d}:{ist_min:02d}")
+                for ticker in watchlist:
+                    try:
+                        with app.test_request_context():
+                            scan(ticker)
+                    except Exception as e:
+                        print(f"Auto-scan error {ticker}: {e}")
+                    time.sleep(3)   # 3s stagger: 99 × 3s = ~5 mins, safe for yfinance
+                gc.collect()
+                _scan_running = False
+                print(f"Auto-scan DONE")
+            elif _scan_running:
+                print("Auto-scan: previous cycle still running, skipping")
+            else:
+                print(f"Auto-scan: market closed | IST {ist_hour:02d}:{ist_min:02d}")
+
+        except Exception as e:
+            _scan_running = False   # reset flag if loop crashes
+            print(f"Auto-scan loop error: {e}")
+
+        time.sleep(300)
+
+scan_thread = threading.Thread(target=auto_scan_loop, daemon=True)
+scan_thread.start()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000, threaded=True)
