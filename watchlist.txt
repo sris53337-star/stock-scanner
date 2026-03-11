@@ -1,8 +1,9 @@
-# ── INTRADAY WATCHLIST — HIGH VOLUME + HIGH VOLATILITY NSE STOCKS ──
-# Best for EMA 9/21 + VWAP + Volume + RSI intraday strategy
-# Updated: March 2026 | Remove the stock to disable it
+# ── COMBINED WATCHLIST · 99 Stocks ───────────────────────────────────────────
+# SET A (Large Caps) + SET B (Mid Caps) merged
+# Duplicates removed: TATAPOWER.NS kept once
+# Upload this as watchlist.txt to your stock-scanner GitHub repo
 
-# ── BANKING (Most volatile intraday sector) ──
+# ── Banks (11) ────────────────────────────────────────────────────────────────
 HDFCBANK.NS
 ICICIBANK.NS
 AXISBANK.NS
@@ -12,16 +13,23 @@ BANKBARODA.NS
 INDUSINDBK.NS
 PNB.NS
 CANBK.NS
+UNIONBANK.NS
+BANDHANBNK.NS
 
-# ── IT (High volume, moves with global cues) ──
+# ── IT & Telecom (11) ─────────────────────────────────────────────────────────
 TCS.NS
 INFY.NS
 HCLTECH.NS
 WIPRO.NS
 TECHM.NS
 LTIM.NS
+PERSISTENT.NS
+IDEA.NS
+TATACOMM.NS
+NAZARA.NS
+TANLA.NS
 
-# ── AUTO (Strong intraday trends) ──
+# ── Auto (6) ──────────────────────────────────────────────────────────────────
 TATAMOTORS.NS
 MARUTI.NS
 BAJAJ-AUTO.NS
@@ -29,7 +37,7 @@ HEROMOTOCO.NS
 EICHERMOT.NS
 M&M.NS
 
-# ── ENERGY & METALS (High volatility) ──
+# ── Energy & Metal (13) ───────────────────────────────────────────────────────
 RELIANCE.NS
 ONGC.NS
 BPCL.NS
@@ -38,31 +46,78 @@ TATASTEEL.NS
 HINDALCO.NS
 VEDL.NS
 JSWSTEEL.NS
+NMDC.NS
+SAIL.NS
+NATIONALUM.NS
+HINDCOPPER.NS
+MOIL.NS
 
-# ── PHARMA (Steady movers) ──
+# ── Pharma & Chemicals (10) ───────────────────────────────────────────────────
 SUNPHARMA.NS
 DRREDDY.NS
 CIPLA.NS
 DIVISLAB.NS
+GRANULES.NS
+PIDILITIND.NS
+ASTRAL.NS
+POLYCAB.NS
+ABBOTINDIA.NS
+IPCALAB.NS
 
-# ── INFRA & POWER ──
+# ── Infra · Power · Defence (14) ──────────────────────────────────────────────
 LT.NS
 NTPC.NS
 POWERGRID.NS
 ADANIPORTS.NS
 HAL.NS
 BEL.NS
+BHEL.NS
+NBCC.NS
+RVNL.NS
+RAILTEL.NS
+IRCON.NS
+SJVN.NS
+NHPC.NS
+HUDCO.NS
 
-# ── HIGH BETA — BIG MOVES (Higher risk, higher reward) ──
-ZOMATO.NS
+# ── PSU Finance (7) ───────────────────────────────────────────────────────────
+IOB.NS
+MAHABANK.NS
+UCOBANK.NS
+CENTRALBK.NS
+RECLTD.NS
+PFC.NS
+IRFC.NS
+
+# ── Fintech · New-age · NBFC (10) ─────────────────────────────────────────────
 BAJFINANCE.NS
 BAJAJFINSV.NS
-TATAPOWER.NS
-DLF.NS
 CHOLAFIN.NS
+MUTHOOTFIN.NS
+LICHSGFIN.NS
+IDFCFIRSTB.NS
+ANGELONE.NS
+360ONE.NS
+POLICYBZR.NS
+IRCTC.NS
 
-# ── FMCG (Slower but reliable) ──
+# ── FMCG & Consumer (8) ───────────────────────────────────────────────────────
 ITC.NS
 HINDUNILVR.NS
 BRITANNIA.NS
 DABUR.NS
+NESTLEIND.NS
+TRENT.NS
+JUBLFOOD.NS
+NYKAA.NS
+
+# ── Diversified (9) ───────────────────────────────────────────────────────────
+ZOMATO.NS
+TATAPOWER.NS
+DLF.NS
+ADANIENT.NS
+ADANIGREEN.NS
+SUZLON.NS
+YESBANK.NS
+PAYTM.NS
+NLCINDIA.NS
