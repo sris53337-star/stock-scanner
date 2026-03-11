@@ -22,7 +22,7 @@ CAPITAL        = 5000
 RISK_PCT       = 1.5   # 1.5% risk
 BROKERAGE      = 10    # INDmoney intraday
 LEVERAGE       = 1     # No leverage Month 1
-MIN_CONFLUENCE = 6     # Minimum score to alert
+MIN_CONFLUENCE = 5     # Minimum score to alert
 
 sent_signals  = {}
 active_trades = {}
@@ -424,6 +424,10 @@ def scan(ticker):
             trade_capital = CAPITAL * 0.25
             signal_grade  = "MODERATE"
             grade_emoji   = "⚠️ MODERATE SIGNAL"
+        elif total_score == 5:
+            trade_capital = CAPITAL * 0.1   # ₹500 — tiny size, just watching
+            signal_grade  = "WEAK"
+            grade_emoji   = "👀 WEAK SIGNAL"
         else:
             return jsonify({
                 "ticker":  ticker,
