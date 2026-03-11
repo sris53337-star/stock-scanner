@@ -1,50 +1,69 @@
+# ── INTRADAY WATCHLIST · 56 Stocks ───────────────────────────────────────────
+# High-volume, F&O-active, liquid NSE stocks only
+# Optimized for free Render — 56 stocks × 3s = ~3 min scan cycle
+#
+# ── Banks (8) ─────────────────────────────────────────────────────────────────
 HDFCBANK.NS
-ONGC.NS
-BEL.NS
-SAIL.NS
-PNB.NS
-COALINDIA.NS
-IRFC.NS
-GAIL.NS
-NMDC.NS
-ADANIPOWER.NS
-IOC.NS
-SUZLON.NS
-CENTRALBK.NS
-MAHABANK.NS
-IRB.NS
-HFCL.NS
-ZEEL.NS
 ICICIBANK.NS
 AXISBANK.NS
 SBIN.NS
 KOTAKBANK.NS
 INDUSINDBK.NS
+BANDHANBNK.NS
+PNB.NS
+# ── IT (6) ────────────────────────────────────────────────────────────────────
 TCS.NS
 INFY.NS
 HCLTECH.NS
 WIPRO.NS
+TECHM.NS
+LTIM.NS
+# ── Auto (5) ──────────────────────────────────────────────────────────────────
 TATAMOTORS.NS
 MARUTI.NS
+BAJAJ-AUTO.NS
 M&M.NS
+HEROMOTOCO.NS
+# ── Energy & Metal (7) ────────────────────────────────────────────────────────
 RELIANCE.NS
+ONGC.NS
+COALINDIA.NS
 TATASTEEL.NS
 HINDALCO.NS
 VEDL.NS
 JSWSTEEL.NS
+SAIL.NS
+NMDC.NS
+IOC.NS
+GAIL.NS
+# ── Pharma (4) ────────────────────────────────────────────────────────────────
 SUNPHARMA.NS
 DRREDDY.NS
 CIPLA.NS
+DIVISLAB.NS
+# ── Infra · Power · Defence (6) ───────────────────────────────────────────────
 LT.NS
 NTPC.NS
 POWERGRID.NS
 HAL.NS
+BEL.NS
 RVNL.NS
+# ── NBFC · Fintech (4) ────────────────────────────────────────────────────────
 BAJFINANCE.NS
 BAJAJFINSV.NS
 ANGELONE.NS
+IRCTC.NS
+IRFC.NS
+# ── FMCG (3) ──────────────────────────────────────────────────────────────────
 ITC.NS
 HINDUNILVR.NS
+BRITANNIA.NS
+# ── New-age & Diversified (7) ─────────────────────────────────────────────────
 ZOMATO.NS
 TATAPOWER.NS
 ADANIENT.NS
+ADANIPORTS.NS
+SUZLON.NS
+DLF.NS
+YESBANK.NS
+ADANIPOWER.NS
