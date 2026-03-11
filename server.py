@@ -6,7 +6,7 @@ import requests as req
 import os
 import threading
 import time
-import gc                          # ✅ FIX 1: explicit garbage collection
+import gc                       
 from datetime import datetime
 
 app = Flask(__name__)
@@ -28,11 +28,9 @@ sent_signals  = {}
 active_trades = {}
 eod_sent_date = ""
 
-# ✅ FIX 2: Cache Nifty trend — was being re-downloaded on EVERY single scan
 _nifty_cache = {"trend": "NEUTRAL", "ts": 0}
 NIFTY_TTL    = 300   # refresh every 5 minutes
 
-# ✅ FIX 3: Cache PDH/PDL per ticker — was being re-downloaded on every scan
 _pdh_cache = {}      # {ticker: (pdh, pdl, date_str)}
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
@@ -138,10 +136,6 @@ def detect_candle_pattern(df):
         return "NEUTRAL", "No Pattern"
 
 def get_pdh_pdl(ticker):
-    """
-    ✅ FIX 3: Cached PDH/PDL — previously downloaded fresh on every /scan call.
-    Now cached per ticker per calendar day (one download per stock per day).
-    """
     today = datetime.utcnow().strftime("%Y-%m-%d")
     cached = _pdh_cache.get(ticker)
     if cached and cached[2] == today:
@@ -163,10 +157,6 @@ def get_pdh_pdl(ticker):
         return None, None
 
 def get_nifty_trend():
-    """
-    ✅ FIX 2: Cached Nifty trend — previously re-downloaded on every single /scan call.
-    Now refreshes only every 5 minutes (NIFTY_TTL).
-    """
     now = time.time()
     if now - _nifty_cache["ts"] < NIFTY_TTL:
         return _nifty_cache["trend"]
@@ -215,11 +205,11 @@ def monitor_trades():
             if ist_hour == 0 and ist_minute < 5:
                 sent_signals.clear()
                 active_trades.clear()
-                _pdh_cache.clear()   # ✅ FIX 4: flush PDH cache at midnight
+                _pdh_cache.clear()
 
             for ticker in list(active_trades.keys()):
                 trade = active_trades[ticker]
-                df = None   # ✅ ensure reference exists for finally block
+                df = None
                 try:
                     df = yf.download(ticker, period="1d", interval="5m", progress=False)
                     if isinstance(df.columns, pd.MultiIndex):
@@ -227,7 +217,7 @@ def monitor_trades():
                     if df.empty:
                         continue
 
-                    # ✅ FIX 5: only keep the last row — no need to hold full df in memory
+                 
                     current_price = float(df['Close'].iloc[-1])
                     del df
                     df = None
@@ -287,9 +277,9 @@ def monitor_trades():
                     pass
                 finally:
                     if df is not None:
-                        del df   # ✅ FIX 5: always free monitor DataFrames
+                        del df
 
-            gc.collect()   # ✅ FIX 1: force GC after each monitor cycle
+            gc.collect()
 
         except:
             pass
@@ -331,7 +321,7 @@ monitor_thread.start()
 # ── Scan Route ────────────────────────────────────────────────────────────────
 @app.route("/scan/<ticker>")
 def scan(ticker):
-    df5  = None   # ✅ FIX 6: declare so finally block can always clean up
+    df5  = None
     df1h = None
     try:
         now_utc    = datetime.utcnow()
@@ -345,7 +335,7 @@ def scan(ticker):
         print(f"SCAN {ticker} | IST {ist_hour:02d}:{ist_minute:02d} | too_early={too_early} too_late={too_late}")
 
         # ── 5 MIN data ────────────────────────────────────────────────────────
-        # ✅ FIX 7: fetch only last 1 day instead of 2 — saves ~50% of 5m data
+     
         df5 = yf.download(ticker, period="1d", interval="5m", progress=False)
         if isinstance(df5.columns, pd.MultiIndex):
             df5.columns = df5.columns.get_level_values(0)
@@ -353,7 +343,7 @@ def scan(ticker):
         if len(df5) < 20:
             return jsonify({"error": "Not enough 5min data"}), 404
 
-        # ✅ FIX 8: only keep the columns we actually use — drops everything else
+     
         df5 = df5[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
 
         df5['EMA5']    = compute_ema(df5['Close'], 5)
@@ -383,18 +373,18 @@ def scan(ticker):
         ema_bull_5m = float(prev5['EMA5']) <= float(prev5['EMA10']) and ema5 > ema10
         ema_bear_5m = float(prev5['EMA5']) >= float(prev5['EMA10']) and ema5 < ema10
 
-        # ✅ FIX 9: save the tail BEFORE deleting df5, then free it immediately
+     
         history_tail = [round(float(x), 2) for x in df5['Close'].tail(20).tolist()]
         candle_dir, candle_name = detect_candle_pattern(df5)
-        del df5   # ✅ free 5m DataFrame immediately — no longer needed
+        del df5
         df5 = None
 
         # ── 1 HR trend ────────────────────────────────────────────────────────
-        # ✅ FIX 10: fetch only 5d of hourly data — 1 month was ~200 rows, 5d is ~40
+     
         df1h = yf.download(ticker, period="5d", interval="1h", progress=False)
         if isinstance(df1h.columns, pd.MultiIndex):
             df1h.columns = df1h.columns.get_level_values(0)
-        df1h     = df1h[['Close']].dropna()   # ✅ only need Close for EMA
+        df1h     = df1h[['Close']].dropna()
         hr_trend = "NEUTRAL"
         if len(df1h) >= 21:
             ema9  = compute_ema(df1h['Close'], 9)
@@ -403,7 +393,7 @@ def scan(ticker):
                 hr_trend = "BULLISH"
             elif float(ema9.iloc[-1]) < float(ema21.iloc[-1]):
                 hr_trend = "BEARISH"
-        del df1h   # ✅ free 1h DataFrame immediately
+        del df1h
         df1h = None
 
         nifty_trend = get_nifty_trend()           # cached — no download
@@ -609,7 +599,7 @@ def scan(ticker):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
-        # ✅ FIX 6: always clean up DataFrames even if an exception is raised mid-scan
+     
         if df5  is not None: del df5
         if df1h is not None: del df1h
         gc.collect()
