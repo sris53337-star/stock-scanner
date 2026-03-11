@@ -6,7 +6,7 @@ import requests as req
 import os
 import threading
 import time
-import json
+import gc                          # ✅ FIX 1: explicit garbage collection
 from datetime import datetime
 
 app = Flask(__name__)
@@ -19,14 +19,21 @@ SHEETS_URL       = "https://script.google.com/macros/s/AKfycbzu0aDb-n4re6qw_Rtkk
 
 # Trading config
 CAPITAL        = 5000
-RISK_PCT       = 1.5   # 1.5% risk
-BROKERAGE      = 10    # INDmoney intraday
-LEVERAGE       = 1     # No leverage Month 1
-MIN_CONFLUENCE = 5     # Minimum score to alert
+RISK_PCT       = 1.5
+BROKERAGE      = 10
+LEVERAGE       = 1
+MIN_CONFLUENCE = 5
 
 sent_signals  = {}
 active_trades = {}
-eod_sent_date = ""   # stores "DD-Mon-YYYY" of last EOD sent — survives restarts via date check
+eod_sent_date = ""
+
+# ✅ FIX 2: Cache Nifty trend — was being re-downloaded on EVERY single scan
+_nifty_cache = {"trend": "NEUTRAL", "ts": 0}
+NIFTY_TTL    = 300   # refresh every 5 minutes
+
+# ✅ FIX 3: Cache PDH/PDL per ticker — was being re-downloaded on every scan
+_pdh_cache = {}      # {ticker: (pdh, pdl, date_str)}
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 def send_telegram(message):
@@ -113,7 +120,6 @@ def detect_candle_pattern(df):
                 return "BULLISH", "Morning Star"
         if pc < po and c > o and o < pc and c > (po + pc) / 2:
             return "BULLISH", "Piercing Line"
-
         if upper_wick > body * 2 and lower_wick < body * 0.5 and c < o and upper_wick > total_range * 0.6:
             return "BEARISH", "Shooting Star"
         if c < o and pc > po and c < po and o > pc and body > prev_body:
@@ -132,35 +138,57 @@ def detect_candle_pattern(df):
         return "NEUTRAL", "No Pattern"
 
 def get_pdh_pdl(ticker):
+    """
+    ✅ FIX 3: Cached PDH/PDL — previously downloaded fresh on every /scan call.
+    Now cached per ticker per calendar day (one download per stock per day).
+    """
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    cached = _pdh_cache.get(ticker)
+    if cached and cached[2] == today:
+        return cached[0], cached[1]
     try:
         df = yf.download(ticker, period="5d", interval="1d", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         df = df.dropna()
         if len(df) >= 2:
-            return float(df['High'].iloc[-2]), float(df['Low'].iloc[-2])
+            pdh = float(df['High'].iloc[-2])
+            pdl = float(df['Low'].iloc[-2])
+            _pdh_cache[ticker] = (pdh, pdl, today)
+            del df
+            return pdh, pdl
+        del df
         return None, None
     except:
         return None, None
 
 def get_nifty_trend():
+    """
+    ✅ FIX 2: Cached Nifty trend — previously re-downloaded on every single /scan call.
+    Now refreshes only every 5 minutes (NIFTY_TTL).
+    """
+    now = time.time()
+    if now - _nifty_cache["ts"] < NIFTY_TTL:
+        return _nifty_cache["trend"]
     try:
         df = yf.download("^NSEI", period="5d", interval="1h", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         df = df.dropna()
-        if len(df) < 21:
-            return "NEUTRAL"
-        df['EMA9']  = compute_ema(df['Close'], 9)
-        df['EMA21'] = compute_ema(df['Close'], 21)
-        last = df.iloc[-1]
-        if float(last['EMA9']) > float(last['EMA21']):
-            return "BULLISH"
-        elif float(last['EMA9']) < float(last['EMA21']):
-            return "BEARISH"
-        return "NEUTRAL"
+        trend = "NEUTRAL"
+        if len(df) >= 21:
+            ema9  = compute_ema(df['Close'], 9)
+            ema21 = compute_ema(df['Close'], 21)
+            if float(ema9.iloc[-1]) > float(ema21.iloc[-1]):
+                trend = "BULLISH"
+            elif float(ema9.iloc[-1]) < float(ema21.iloc[-1]):
+                trend = "BEARISH"
+        del df
+        _nifty_cache["trend"] = trend
+        _nifty_cache["ts"]    = now
+        return trend
     except:
-        return "NEUTRAL"
+        return _nifty_cache["trend"]   # return stale on error
 
 def load_watchlist():
     try:
@@ -180,18 +208,18 @@ def monitor_trades():
             ist_minute = ist_mins % 60
             today      = now.strftime("%d-%b-%Y")
 
-            # ✅ FIX: use date string — restart-proof, can only send once per calendar day
             if ist_hour == 15 and ist_minute >= 35 and eod_sent_date != today:
                 send_eod_summary()
                 eod_sent_date = today
 
-            # Reset signals at midnight IST
             if ist_hour == 0 and ist_minute < 5:
                 sent_signals.clear()
                 active_trades.clear()
+                _pdh_cache.clear()   # ✅ FIX 4: flush PDH cache at midnight
 
             for ticker in list(active_trades.keys()):
                 trade = active_trades[ticker]
+                df = None   # ✅ ensure reference exists for finally block
                 try:
                     df = yf.download(ticker, period="1d", interval="5m", progress=False)
                     if isinstance(df.columns, pd.MultiIndex):
@@ -199,7 +227,11 @@ def monitor_trades():
                     if df.empty:
                         continue
 
+                    # ✅ FIX 5: only keep the last row — no need to hold full df in memory
                     current_price = float(df['Close'].iloc[-1])
+                    del df
+                    df = None
+
                     entry  = trade['entry']
                     sl     = trade['sl']
                     target = trade['target']
@@ -211,22 +243,17 @@ def monitor_trades():
 
                     if signal == 'BULLISH':
                         if current_price >= target:
-                            result     = 'TARGET HIT'
-                            exit_price = target
+                            result, exit_price = 'TARGET HIT', target
                         elif current_price <= sl:
-                            result     = 'SL HIT'
-                            exit_price = sl
+                            result, exit_price = 'SL HIT', sl
                     else:
                         if current_price <= target:
-                            result     = 'TARGET HIT'
-                            exit_price = target
+                            result, exit_price = 'TARGET HIT', target
                         elif current_price >= sl:
-                            result     = 'SL HIT'
-                            exit_price = sl
+                            result, exit_price = 'SL HIT', sl
 
                     if ist_hour == 15 and ist_minute >= 20 and not result:
-                        result     = 'MANUAL EXIT'
-                        exit_price = current_price
+                        result, exit_price = 'MANUAL EXIT', current_price
 
                     if result:
                         pnl          = round(shares * (exit_price - entry) *
@@ -258,6 +285,12 @@ def monitor_trades():
                         del active_trades[ticker]
                 except:
                     pass
+                finally:
+                    if df is not None:
+                        del df   # ✅ FIX 5: always free monitor DataFrames
+
+            gc.collect()   # ✅ FIX 1: force GC after each monitor cycle
+
         except:
             pass
         time.sleep(300)
@@ -298,26 +331,30 @@ monitor_thread.start()
 # ── Scan Route ────────────────────────────────────────────────────────────────
 @app.route("/scan/<ticker>")
 def scan(ticker):
+    df5  = None   # ✅ FIX 6: declare so finally block can always clean up
+    df1h = None
     try:
         now_utc    = datetime.utcnow()
         ist_mins   = now_utc.hour * 60 + now_utc.minute + 330
         ist_hour   = (ist_mins // 60) % 24
         ist_minute = ist_mins % 60
 
-        # ✅ FIXED: block only after 3:15 PM (was blocking from 2:00 PM before!)
         too_early = (ist_hour == 9 and ist_minute < 30)
         too_late  = (ist_hour > 15) or (ist_hour == 15 and ist_minute >= 15)
 
-        # 🔍 DEBUG — log time window every scan
         print(f"SCAN {ticker} | IST {ist_hour:02d}:{ist_minute:02d} | too_early={too_early} too_late={too_late}")
 
         # ── 5 MIN data ────────────────────────────────────────────────────────
-        df5 = yf.download(ticker, period="2d", interval="5m", progress=False)
+        # ✅ FIX 7: fetch only last 1 day instead of 2 — saves ~50% of 5m data
+        df5 = yf.download(ticker, period="1d", interval="5m", progress=False)
         if isinstance(df5.columns, pd.MultiIndex):
             df5.columns = df5.columns.get_level_values(0)
         df5 = df5.dropna()
         if len(df5) < 20:
             return jsonify({"error": "Not enough 5min data"}), 404
+
+        # ✅ FIX 8: only keep the columns we actually use — drops everything else
+        df5 = df5[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
 
         df5['EMA5']    = compute_ema(df5['Close'], 5)
         df5['EMA10']   = compute_ema(df5['Close'], 10)
@@ -346,24 +383,31 @@ def scan(ticker):
         ema_bull_5m = float(prev5['EMA5']) <= float(prev5['EMA10']) and ema5 > ema10
         ema_bear_5m = float(prev5['EMA5']) >= float(prev5['EMA10']) and ema5 < ema10
 
+        # ✅ FIX 9: save the tail BEFORE deleting df5, then free it immediately
+        history_tail = [round(float(x), 2) for x in df5['Close'].tail(20).tolist()]
+        candle_dir, candle_name = detect_candle_pattern(df5)
+        del df5   # ✅ free 5m DataFrame immediately — no longer needed
+        df5 = None
+
         # ── 1 HR trend ────────────────────────────────────────────────────────
-        df1h = yf.download(ticker, period="1mo", interval="1h", progress=False)
+        # ✅ FIX 10: fetch only 5d of hourly data — 1 month was ~200 rows, 5d is ~40
+        df1h = yf.download(ticker, period="5d", interval="1h", progress=False)
         if isinstance(df1h.columns, pd.MultiIndex):
             df1h.columns = df1h.columns.get_level_values(0)
-        df1h     = df1h.dropna()
+        df1h     = df1h[['Close']].dropna()   # ✅ only need Close for EMA
         hr_trend = "NEUTRAL"
         if len(df1h) >= 21:
-            df1h['EMA9']  = compute_ema(df1h['Close'], 9)
-            df1h['EMA21'] = compute_ema(df1h['Close'], 21)
-            last1h = df1h.iloc[-1]
-            if float(last1h['EMA9']) > float(last1h['EMA21']):
+            ema9  = compute_ema(df1h['Close'], 9)
+            ema21 = compute_ema(df1h['Close'], 21)
+            if float(ema9.iloc[-1]) > float(ema21.iloc[-1]):
                 hr_trend = "BULLISH"
-            elif float(last1h['EMA9']) < float(last1h['EMA21']):
+            elif float(ema9.iloc[-1]) < float(ema21.iloc[-1]):
                 hr_trend = "BEARISH"
+        del df1h   # ✅ free 1h DataFrame immediately
+        df1h = None
 
-        nifty_trend          = get_nifty_trend()
-        pdh, pdl             = get_pdh_pdl(ticker)
-        candle_dir, candle_name = detect_candle_pattern(df5)
+        nifty_trend = get_nifty_trend()           # cached — no download
+        pdh, pdl    = get_pdh_pdl(ticker)         # cached — no download after first call
 
         # ── Direction ─────────────────────────────────────────────────────────
         if ema_bull_5m:
@@ -384,9 +428,9 @@ def scan(ticker):
         scores['ema_cross'] = True
         scores['hr_trend']  = (direction == hr_trend)
         scores['nifty']     = (direction == nifty_trend or nifty_trend == "NEUTRAL")
-        scores['volume']    = vol_ratio >= 1.5                                          # relaxed: was 2.0x
+        scores['volume']    = vol_ratio >= 1.5
         scores['vwap']      = (direction == "BULLISH" and above_vwap) or (direction == "BEARISH" and not above_vwap)
-        scores['rsi']       = (direction == "BULLISH" and 40 <= rsi <= 70) or (direction == "BEARISH" and 30 <= rsi <= 65)  # relaxed: was 47-63 / 40-58
+        scores['rsi']       = (direction == "BULLISH" and 40 <= rsi <= 70) or (direction == "BEARISH" and 30 <= rsi <= 65)
         scores['pdh_pdl']   = False
         if pdh and pdl:
             scores['pdh_pdl'] = (direction == "BULLISH" and price > pdh) or (direction == "BEARISH" and price < pdl)
@@ -395,7 +439,6 @@ def scan(ticker):
 
         total_score = sum(scores.values())
 
-        # 🔍 DEBUG — log every crossover with score
         print(f"CROSSOVER {ticker} | {direction} | score={total_score}/9 | "
               f"ema={scores['ema_cross']} hr={scores['hr_trend']} nifty={scores['nifty']} "
               f"vol={scores['volume']}({vol_ratio}x) vwap={scores['vwap']} rsi={scores['rsi']}({rsi}) "
@@ -425,7 +468,7 @@ def scan(ticker):
             signal_grade  = "MODERATE"
             grade_emoji   = "⚠️ MODERATE SIGNAL"
         elif total_score == 5:
-            trade_capital = CAPITAL * 0.1   # ₹500 — tiny size, just watching
+            trade_capital = CAPITAL * 0.1
             signal_grade  = "WEAK"
             grade_emoji   = "👀 WEAK SIGNAL"
         else:
@@ -560,11 +603,16 @@ def scan(ticker):
             "entry":       entry,
             "sl":          sl,
             "target":      target,
-            "history":     [round(float(x), 2) for x in df5['Close'].tail(20).tolist()]
+            "history":     history_tail
         })
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        # ✅ FIX 6: always clean up DataFrames even if an exception is raised mid-scan
+        if df5  is not None: del df5
+        if df1h is not None: del df1h
+        gc.collect()
 
 # ── Other Routes ──────────────────────────────────────────────────────────────
 @app.route("/watchlist")
@@ -573,6 +621,7 @@ def get_watchlist():
 
 @app.route("/backtest/<ticker>")
 def backtest(ticker):
+    df = None
     try:
         period = request.args.get("period", "3mo")
         df = yf.download(ticker, period=period, interval="1d", progress=False)
@@ -581,16 +630,20 @@ def backtest(ticker):
         df = df.dropna()
         if len(df) < 30:
             return jsonify({"error": "Not enough data"}), 404
-        return jsonify({
+        result = {
             "dates":   [str(d)[:10] for d in df.index.tolist()],
             "opens":   [round(float(x), 2) for x in df['Open'].tolist()],
             "highs":   [round(float(x), 2) for x in df['High'].tolist()],
             "lows":    [round(float(x), 2) for x in df['Low'].tolist()],
             "closes":  [round(float(x), 2) for x in df['Close'].tolist()],
             "volumes": [int(x) for x in df['Volume'].tolist()],
-        })
+        }
+        return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        if df is not None: del df
+        gc.collect()
 
 @app.route("/test")
 def test_alert():
