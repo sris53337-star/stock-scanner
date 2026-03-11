@@ -26,7 +26,7 @@ MIN_CONFLUENCE = 6     # Minimum score to alert
 
 sent_signals  = {}
 active_trades = {}
-eod_sent      = False
+eod_sent_date = ""   # stores "DD-Mon-YYYY" of last EOD sent — survives restarts via date check
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 def send_telegram(message):
@@ -171,20 +171,22 @@ def load_watchlist():
 
 # ── Trade Monitor ─────────────────────────────────────────────────────────────
 def monitor_trades():
-    global eod_sent
+    global eod_sent_date
     while True:
         try:
             now        = datetime.utcnow()
             ist_mins   = now.hour * 60 + now.minute + 330
             ist_hour   = (ist_mins // 60) % 24
             ist_minute = ist_mins % 60
+            today      = now.strftime("%d-%b-%Y")
 
-            if ist_hour == 15 and ist_minute >= 35 and not eod_sent:
+            # ✅ FIX: use date string — restart-proof, can only send once per calendar day
+            if ist_hour == 15 and ist_minute >= 35 and eod_sent_date != today:
                 send_eod_summary()
-                eod_sent = True
+                eod_sent_date = today
 
+            # Reset signals at midnight IST
             if ist_hour == 0 and ist_minute < 5:
-                eod_sent = False
                 sent_signals.clear()
                 active_trades.clear()
 
@@ -306,6 +308,9 @@ def scan(ticker):
         too_early = (ist_hour == 9 and ist_minute < 30)
         too_late  = (ist_hour > 15) or (ist_hour == 15 and ist_minute >= 15)
 
+        # 🔍 DEBUG — log time window every scan
+        print(f"SCAN {ticker} | IST {ist_hour:02d}:{ist_minute:02d} | too_early={too_early} too_late={too_late}")
+
         # ── 5 MIN data ────────────────────────────────────────────────────────
         df5 = yf.download(ticker, period="2d", interval="5m", progress=False)
         if isinstance(df5.columns, pd.MultiIndex):
@@ -379,9 +384,9 @@ def scan(ticker):
         scores['ema_cross'] = True
         scores['hr_trend']  = (direction == hr_trend)
         scores['nifty']     = (direction == nifty_trend or nifty_trend == "NEUTRAL")
-        scores['volume']    = vol_ratio >= 2.0
+        scores['volume']    = vol_ratio >= 1.5                                          # relaxed: was 2.0x
         scores['vwap']      = (direction == "BULLISH" and above_vwap) or (direction == "BEARISH" and not above_vwap)
-        scores['rsi']       = (direction == "BULLISH" and 47 <= rsi <= 63) or (direction == "BEARISH" and 40 <= rsi <= 58)
+        scores['rsi']       = (direction == "BULLISH" and 40 <= rsi <= 70) or (direction == "BEARISH" and 30 <= rsi <= 65)  # relaxed: was 47-63 / 40-58
         scores['pdh_pdl']   = False
         if pdh and pdl:
             scores['pdh_pdl'] = (direction == "BULLISH" and price > pdh) or (direction == "BEARISH" and price < pdl)
@@ -389,6 +394,12 @@ def scan(ticker):
         scores['adx']       = adx_val >= 25
 
         total_score = sum(scores.values())
+
+        # 🔍 DEBUG — log every crossover with score
+        print(f"CROSSOVER {ticker} | {direction} | score={total_score}/9 | "
+              f"ema={scores['ema_cross']} hr={scores['hr_trend']} nifty={scores['nifty']} "
+              f"vol={scores['volume']}({vol_ratio}x) vwap={scores['vwap']} rsi={scores['rsi']}({rsi}) "
+              f"pdh={scores['pdh_pdl']} candle={scores['candle']} adx={scores['adx']}({adx_val})")
 
         # ── Entry / SL / Target ───────────────────────────────────────────────
         if direction == "BULLISH":
@@ -448,6 +459,7 @@ def scan(ticker):
 
         # ── Fire signal ───────────────────────────────────────────────────────
         signal_key = f"{ticker}_{direction}"
+        print(f"GATE {ticker} | key_exists={signal_key in sent_signals} too_early={too_early} too_late={too_late} score={total_score}")
         if signal_key not in sent_signals and not too_early and not too_late:
             sent_signals[signal_key] = {
                 'signal': direction,
