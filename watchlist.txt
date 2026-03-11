@@ -1,123 +1,50 @@
-# ── COMBINED WATCHLIST · 99 Stocks ───────────────────────────────────────────
-# SET A (Large Caps) + SET B (Mid Caps) merged
-# Duplicates removed: TATAPOWER.NS kept once
-# Upload this as watchlist.txt to your stock-scanner GitHub repo
-
-# ── Banks (11) ────────────────────────────────────────────────────────────────
 HDFCBANK.NS
+ONGC.NS
+BEL.NS
+SAIL.NS
+PNB.NS
+COALINDIA.NS
+IRFC.NS
+GAIL.NS
+NMDC.NS
+ADANIPOWER.NS
+IOC.NS
+SUZLON.NS
+CENTRALBK.NS
+MAHABANK.NS
+IRB.NS
+HFCL.NS
+ZEEL.NS
 ICICIBANK.NS
 AXISBANK.NS
-KOTAKBANK.NS
 SBIN.NS
-BANKBARODA.NS
+KOTAKBANK.NS
 INDUSINDBK.NS
-PNB.NS
-CANBK.NS
-UNIONBANK.NS
-BANDHANBNK.NS
-
-# ── IT & Telecom (11) ─────────────────────────────────────────────────────────
 TCS.NS
 INFY.NS
 HCLTECH.NS
 WIPRO.NS
-TECHM.NS
-LTIM.NS
-PERSISTENT.NS
-IDEA.NS
-TATACOMM.NS
-NAZARA.NS
-TANLA.NS
-
-# ── Auto (6) ──────────────────────────────────────────────────────────────────
 TATAMOTORS.NS
 MARUTI.NS
-BAJAJ-AUTO.NS
-HEROMOTOCO.NS
-EICHERMOT.NS
 M&M.NS
-
-# ── Energy & Metal (13) ───────────────────────────────────────────────────────
 RELIANCE.NS
-ONGC.NS
-BPCL.NS
-COALINDIA.NS
 TATASTEEL.NS
 HINDALCO.NS
 VEDL.NS
 JSWSTEEL.NS
-NMDC.NS
-SAIL.NS
-NATIONALUM.NS
-HINDCOPPER.NS
-MOIL.NS
-
-# ── Pharma & Chemicals (10) ───────────────────────────────────────────────────
 SUNPHARMA.NS
 DRREDDY.NS
 CIPLA.NS
-DIVISLAB.NS
-GRANULES.NS
-PIDILITIND.NS
-ASTRAL.NS
-POLYCAB.NS
-ABBOTINDIA.NS
-IPCALAB.NS
-
-# ── Infra · Power · Defence (14) ──────────────────────────────────────────────
 LT.NS
 NTPC.NS
 POWERGRID.NS
-ADANIPORTS.NS
 HAL.NS
-BEL.NS
-BHEL.NS
-NBCC.NS
 RVNL.NS
-RAILTEL.NS
-IRCON.NS
-SJVN.NS
-NHPC.NS
-HUDCO.NS
-
-# ── PSU Finance (7) ───────────────────────────────────────────────────────────
-IOB.NS
-MAHABANK.NS
-UCOBANK.NS
-CENTRALBK.NS
-RECLTD.NS
-PFC.NS
-IRFC.NS
-
-# ── Fintech · New-age · NBFC (10) ─────────────────────────────────────────────
 BAJFINANCE.NS
 BAJAJFINSV.NS
-CHOLAFIN.NS
-MUTHOOTFIN.NS
-LICHSGFIN.NS
-IDFCFIRSTB.NS
 ANGELONE.NS
-360ONE.NS
-POLICYBZR.NS
-IRCTC.NS
-
-# ── FMCG & Consumer (8) ───────────────────────────────────────────────────────
 ITC.NS
 HINDUNILVR.NS
-BRITANNIA.NS
-DABUR.NS
-NESTLEIND.NS
-TRENT.NS
-JUBLFOOD.NS
-NYKAA.NS
-
-# ── Diversified (9) ───────────────────────────────────────────────────────────
 ZOMATO.NS
 TATAPOWER.NS
-DLF.NS
 ADANIENT.NS
-ADANIGREEN.NS
-SUZLON.NS
-YESBANK.NS
-PAYTM.NS
-NLCINDIA.NS
