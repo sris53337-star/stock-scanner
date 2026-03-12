@@ -44,9 +44,10 @@ def send_telegram(message):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         r = req.post(url, json={
-            "chat_id":    TELEGRAM_CHAT_ID,
-            "text":       message,
-            "parse_mode": "HTML"
+            "chat_id":                  TELEGRAM_CHAT_ID,
+            "text":                  message,
+            "parse_mode":             "HTML",
+            "disable_web_page_preview": True
         }, timeout=10)
         print(f"Telegram sent: {r.status_code}")
     except Exception as e:
