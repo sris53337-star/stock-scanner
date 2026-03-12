@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Candlestick Clash — NSE Scanner</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#060606; color:#c0c0c0; font-family:'Courier New',monospace; }
+.header { background:#080808; border-bottom:1px solid #111; padding:14px 22px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:50; }
+.logo { display:flex; align-items:center; gap:14px; }
+.logo-icon { width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,#00ff88,#00aaff); display:flex; align-items:center; justify-content:center; font-size:18px; }
+.logo-title { color:#fff; font-weight:700; font-size:15px; letter-spacing:1px; }
+.logo-sub { color:#2a2a2a; font-size:9px; letter-spacing:2px; }
+.live { color:#00ff88; font-size:11px; text-align:right; }
+.time { color:#2a2a2a; font-size:10px; text-align:right; }
+.tabs { display:flex; background:#080808; border-bottom:1px solid #111; }
+.tab { flex:1; padding:14px 20px; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer; text-align:left; }
+.tab.active { border-bottom-color:#00ff88; }
+.tab.active.swing { border-bottom-color:#58a6ff; }
+.tab-label { font-family:monospace; font-weight:700; font-size:13px; color:#333; }
+.tab.active .tab-label { color:#00ff88; }
+.tab.active.swing .tab-label { color:#58a6ff; }
+.tab-sub { font-size:9px; color:#222; margin-top:3px; letter-spacing:1px; }
+.tab.active .tab-sub { color:#444; }
+.container { max-width:1100px; margin:0 auto; padding:16px 14px 60px; }
+.capital-bar { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:14px; }
+.cap-card { background:#0a0a0a; border:1px solid #111; border-radius:10px; padding:10px 14px; }
+.cap-label { color:#333; font-size:9px; letter-spacing:1.5px; margin-bottom:4px; }
+.cap-value { font-family:monospace; font-weight:700; font-size:14px; }
+.cap-sub { color:#333; font-size:9px; margin-top:2px; }
+.stats { display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; font-size:10px; color:#333; align-items:center; }
+.stat-pill { background:#0d0d0d; border:1px solid #111; border-radius:20px; padding:3px 10px; font-size:9px; color:#444; }
+.signals { color:#00ff88; }
+.table { background:#080808; border:1px solid #111; border-radius:12px; overflow:hidden; margin-bottom:12px; }
+.thead { display:grid; grid-template-columns:1.4fr 90px 65px 65px 75px 70px 90px 110px; gap:8px; padding:9px 18px; background:#0a0a0a; border-bottom:1px solid #111; }
+.thead div { color:#2a2a2a; font-size:9px; letter-spacing:1.5px; font-weight:700; text-align:right; }
+.thead div:first-child { text-align:left; }
+.row { display:grid; grid-template-columns:1.4fr 90px 65px 65px 75px 70px 90px 110px; gap:8px; padding:11px 18px; border-bottom:1px solid #0d0d0d; cursor:pointer; transition:background 0.2s; align-items:center; }
+.row:hover { background:#0d0d0d; }
+.ticker { color:#e0e0e0; font-weight:700; font-size:12px; }
+.atr { color:#333; font-size:10px; margin-top:2px; }
+.price { color:#e0e0e0; font-family:monospace; font-size:12px; font-weight:700; text-align:right; }
+.change { font-size:10px; text-align:right; }
+.val { font-family:monospace; font-size:11px; text-align:right; }
+.lbl { color:#333; font-size:9px; text-align:right; }
+.signal-badge { padding:3px 8px; border-radius:20px; font-size:9px; font-weight:700; white-space:nowrap; display:inline-block; }
+.score-pill { display:inline-flex; align-items:center; padding:2px 7px; border-radius:20px; font-size:9px; font-weight:700; }
+.watching { color:#222; font-size:10px; }
+.signal-log { border-top:1px solid #111; }
+.signal-log-header { padding:10px 18px; border-bottom:1px solid #111; background:#0a0a0a; display:flex; align-items:center; gap:8px; }
+.signal-row { display:grid; grid-template-columns:22px 80px 70px 75px 65px 65px 65px 55px 50px; gap:6px; padding:9px 18px; border-bottom:1px solid #0d0d0d; cursor:pointer; align-items:center; }
+.signal-row:hover { background:#0d0d0d; }
+.no-signals { padding:18px; text-align:center; color:#2a2a2a; font-size:12px; }
+.legend { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; align-items:center; }
+.legend-badge { padding:1px 7px; border-radius:20px; font-size:9px; font-weight:700; }
+.legend-text { color:#2a2a2a; font-size:10px; }
+.footer { margin-top:10px; color:#1a1a1a; font-size:10px; text-align:center; }
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.92); backdrop-filter:blur(8px); display:none; align-items:flex-start; justify-content:center; z-index:100; padding:20px; overflow-y:auto; }
+.modal-overlay.show { display:flex; }
+.modal { background:#0a0a0a; border-radius:16px; max-width:720px; width:100%; padding:26px; position:relative; margin:auto; }
+.modal-close { position:absolute; top:14px; right:16px; background:none; border:none; color:#444; font-size:22px; cursor:pointer; }
+.modal-header { display:flex; align-items:center; gap:10px; margin-bottom:6px; flex-wrap:wrap; }
+.modal-price { color:#fff; font-family:monospace; font-size:28px; font-weight:700; margin-bottom:16px; }
+.trade-cards { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:12px; }
+.trade-card { border-radius:10px; padding:10px 12px; text-align:center; }
+.trade-card-label { font-size:9px; letter-spacing:1.5px; margin-bottom:5px; color:#444; }
+.trade-card-value { font-family:monospace; font-weight:700; font-size:14px; }
+.score-ring { display:flex; align-items:center; justify-content:space-between; background:#0d0d0d; border-radius:12px; padding:14px 18px; margin-bottom:12px; border:1px solid #1a1a1a; flex-wrap:wrap; gap:12px; }
+.score-num { font-family:monospace; font-size:38px; font-weight:700; }
+.score-dots { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+.conf-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:12px; }
+.conf-item { background:#0d0d0d; border-radius:8px; padding:7px 10px; border:1px solid #1a1a1a; display:flex; justify-content:space-between; align-items:center; }
+.conf-yes { border-color:#00ff8825; }
+.conf-no  { border-color:#ff446625; opacity:0.55; }
+.conf-label { color:#555; font-size:10px; }
+.conf-val { font-size:10px; font-family:monospace; }
+.pos-card { background:#0d0d0d; border-radius:10px; padding:14px; border:1px solid #1a1a1a; margin-bottom:12px; }
+.pos-title { font-size:9px; color:#333; letter-spacing:2px; margin-bottom:10px; }
+.pos-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.pos-item { text-align:center; }
+.pos-lbl { color:#333; font-size:9px; margin-bottom:3px; }
+.pos-val { font-family:monospace; font-size:13px; font-weight:700; }
+.ai-box { background:#111; border-radius:10px; padding:12px 14px; border:1px solid #1a1a1a; min-height:80px; margin-top:10px; }
+.ai-title { color:#333; font-size:9px; letter-spacing:2px; margin-bottom:8px; }
+.ai-text { color:#aaa; font-size:12px; line-height:1.8; white-space:pre-wrap; }
+.disclaimer { color:#333; font-size:10px; margin-top:10px; text-align:center; }
+.chart-box { background:#111; border-radius:10px; border:1px solid #1a1a1a; padding:12px; margin-bottom:12px; }
+.tv-btn { display:block; background:#0d1117; color:#58a6ff; padding:10px; text-align:center; border-radius:8px; text-decoration:none; margin-bottom:10px; font-size:11px; border:1px solid #58a6ff25; }
+.tv-btn:hover { border-color:#58a6ff60; }
+.sec-title { color:#333; font-size:9px; letter-spacing:2px; margin:12px 0 6px; }
+.spinner { display:inline-block; width:12px; height:12px; border:2px solid #333; border-top-color:#00ff88; border-radius:50%; animation:spin 0.7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (max-width:600px) {
+  .capital-bar { grid-template-columns:1fr 1fr; }
+  .thead, .row { grid-template-columns:1fr 70px 55px 60px 70px; }
+  .thead div:nth-child(3), .row > div:nth-child(3),
+  .thead div:nth-child(4), .row > div:nth-child(4) { display:none; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">
+    <div class="logo-icon">📡</div>
+    <div>
+      <div class="logo-title">CANDLESTICK CLASH</div>
+      <div class="logo-sub">DUAL SCANNER · NSE INDIA</div>
+    </div>
+  </div>
+  <div>
+    <div class="live" id="liveStatus">● LIVE · 56 stocks</div>
+    <div class="time" id="liveTime"></div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" id="tabIntraday" onclick="switchTab('intraday')">
+    <div class="tab-label">📈 INTRADAY</div>
+    <div class="tab-sub">EMA 5/10 · 5min · 9 Confluences · Exit 3:15PM</div>
+  </button>
+  <button class="tab swing" id="tabSwing" onclick="switchTab('swing')">
+    <div class="tab-label">📅 SWING</div>
+    <div class="tab-sub">EMA 20/50 · Daily · Hold 5-15 days</div>
+  </button>
+</div>
+
+
+<div class="container">
+
+  <div class="capital-bar">
+    <div class="cap-card">
+      <div class="cap-label">CAPITAL</div>
+      <div class="cap-value" style="color:#58a6ff">₹5,000</div>
+      <div class="cap-sub">No leverage · Month 1</div>
+    </div>
+    <div class="cap-card">
+      <div class="cap-label">RISK / TRADE</div>
+      <div class="cap-value" style="color:#ffaa00">1.5% = ₹75</div>
+      <div class="cap-sub">Brokerage ₹10 INDmoney</div>
+    </div>
+    <div class="cap-card">
+      <div class="cap-label">6 / 9 SCORE</div>
+      <div class="cap-value" style="color:#ff8800">₹1,250</div>
+      <div class="cap-sub">25% · Moderate signal</div>
+    </div>
+    <div class="cap-card">
+      <div class="cap-label">7-8 / 9 SCORE</div>
+      <div class="cap-value" style="color:#00aaff">₹2,500</div>
+      <div class="cap-sub">50% · Strong signal</div>
+    </div>
+    <div class="cap-card">
+      <div class="cap-label">9 / 9 SCORE</div>
+      <div class="cap-value" style="color:#00ff88">₹5,000</div>
+      <div class="cap-sub">100% · Perfect signal 🔥</div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <span id="stockCount">56 stocks</span>
+    <span id="strategyInfo" class="stat-pill">5MIN EMA5/10 · 1HR · Nifty · PDH/PDL · Candle · ADX · Vol · RSI · VWAP</span>
+    <span class="stat-pill">RR 1:2 · ATR SL</span>
+    <span class="signals" id="signalCount">· 0 signals today</span>
+  </div>
+
+  <div class="table">
+    <div class="thead">
+      <div>STOCK</div>
+      <div>PRICE</div>
+      <div>RSI</div>
+      <div>ADX</div>
+      <div>CHART</div>
+      <div>VOL</div>
+      <div>SCORE</div>
+      <div>SIGNAL</div>
+    </div>
+    <div id="stockRows"></div>
+    <div class="signal-log">
+      <div class="signal-log-header">
+        <span style="color:#00ff88;font-size:11px;font-weight:700;letter-spacing:1.5px">🔔 SIGNALS TODAY</span>
+        <span id="sigCount" style="background:#111;color:#333;font-size:10px;padding:1px 7px;border-radius:10px;border:1px solid #1a1a1a">0</span>
+        <span style="color:#2a2a2a;font-size:10px;margin-left:auto">click row for full trade card</span>
+      </div>
+      <div id="signalLog"><div class="no-signals">No strong signals yet — waiting for confluences to align…</div></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span class="legend-badge" style="background:rgba(0,255,136,0.08);color:#00ff88;border:1px solid #00ff8840">9/9 PERFECT</span><span class="legend-text">₹5,000 full capital 🔥</span>
+    <span class="legend-badge" style="background:rgba(0,170,255,0.08);color:#00aaff;border:1px solid #00aaff40">7-8/9 STRONG</span><span class="legend-text">₹2,500 half capital ✅</span>
+    <span class="legend-badge" style="background:rgba(255,136,0,0.08);color:#ff8800;border:1px solid #ff880040">6/9 MODERATE</span><span class="legend-text">₹1,250 quarter capital ⚠️</span>
+    <span class="legend-badge" style="background:rgba(255,68,102,0.08);color:#ff4466;border:1px solid #ff446640">BEARISH</span><span class="legend-text">Short setup</span>
+  </div>
+  <div class="footer">📡 Intraday: 5min NSE data · 9 Confluences scoring · Click any signal for full position details + AI analysis</div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal" id="modalBox">
+    <button class="modal-close" onclick="closeModal()">×</button>
+    <div class="modal-header" id="modalHeader"></div>
+    <div class="modal-price" id="modalPrice"></div>
+    <div class="score-ring" id="scoreRing"></div>
+    <div class="trade-cards" id="tradeCards"></div>
+    <div class="pos-card" id="posCard"></div>
+    <div class="sec-title">CONFLUENCE BREAKDOWN (9 FACTORS)</div>
+    <div class="conf-grid" id="confGrid"></div>
+    <a id="tvLink" class="tv-btn" href="#" target="_blank">📊 Open on TradingView</a>
+    <div class="chart-box" id="chartBox" style="display:none">
+      <div style="color:#333;font-size:9px;letter-spacing:2px;margin-bottom:8px">PRICE CHART · EMA 5/10 · ENTRY / SL / TARGET</div>
+      <canvas id="priceChart" height="140" style="width:100%"></canvas>
+    </div>
+    <div class="ai-box">
+      <div class="ai-title">🤖 AI TRADE ANALYSIS</div>
+      <div class="ai-text" id="aiText"><span class="spinner"></span> Analyzing…</div>
+    </div>
+    <div class="disclaimer">⚠️ Educational only. Not financial advice. Always place SL immediately after entry!</div>
+  </div>
+</div>
+
+<script>
+const INTRADAY_URL = "https://stock-scanner-ixak.onrender.com";
+const SWING_URL    = "https://swing-scanner-vqpb.onrender.com";
+const CAPITAL = 5000, RISK_PCT = 1.5, BROKERAGE = 10;
+
+// ── INTRADAY WATCHLIST · 57 Stocks ───────────────────────────────────────────
+const INTRADAY_STOCKS = [
+  // Banks (8)
+  "HDFCBANK.NS","ICICIBANK.NS","AXISBANK.NS","SBIN.NS",
+  "KOTAKBANK.NS","INDUSINDBK.NS","BANDHANBNK.NS","PNB.NS",
+  // IT (6)
+  "TCS.NS","INFY.NS","HCLTECH.NS","WIPRO.NS","TECHM.NS","LTIM.NS",
+  // Auto (5)
+  "TATAMOTORS.NS","MARUTI.NS","BAJAJ-AUTO.NS","M&M.NS","HEROMOTOCO.NS",
+  // Energy & Metal (11)
+  "RELIANCE.NS","ONGC.NS","COALINDIA.NS","TATASTEEL.NS","HINDALCO.NS",
+  "VEDL.NS","JSWSTEEL.NS","SAIL.NS","NMDC.NS","IOC.NS","GAIL.NS",
+  // Pharma (4)
+  "SUNPHARMA.NS","DRREDDY.NS","CIPLA.NS","DIVISLAB.NS",
+  // Infra · Power · Defence (6)
+  "LT.NS","NTPC.NS","POWERGRID.NS","HAL.NS","BEL.NS","RVNL.NS",
+  // NBFC · Fintech (5)
+  "BAJFINANCE.NS","BAJAJFINSV.NS","ANGELONE.NS","IRCTC.NS","IRFC.NS",
+  // FMCG (3)
+  "ITC.NS","HINDUNILVR.NS","BRITANNIA.NS",
+  // New-age & Diversified (9)
+  "ZOMATO.NS","TATAPOWER.NS","ADANIENT.NS","ADANIPORTS.NS",
+  "SUZLON.NS","DLF.NS","YESBANK.NS","ADANIPOWER.NS"
+];
+
+const SWING_STOCKS = [
+  "PNB.NS","CANBK.NS","BANKBARODA.NS","UNIONBANK.NS","IOB.NS",
+  "UCOBANK.NS","CENTRALBK.NS","BANDHANBNK.NS","RBLBANK.NS","COALINDIA.NS",
+  "NMDC.NS","SAIL.NS","NATIONALUM.NS","HINDCOPPER.NS","MOIL.NS","NLCINDIA.NS",
+  "IRCON.NS","BHEL.NS","NTPC.NS","ONGC.NS","NBCC.NS","RECLTD.NS","PFC.NS",
+  "IRFC.NS","HUDCO.NS","RVNL.NS","RAILTEL.NS","SJVN.NS","NHPC.NS","WIPRO.NS",
+  "IDEA.NS","TATACOMM.NS","NAZARA.NS","TANLA.NS","GRANULES.NS","IDFCFIRSTB.NS",
+  "SUZLON.NS","ZOMATO.NS","YESBANK.NS"
+];
+
+let currentTab = "intraday", stockData = {}, signals = [], intervals = {};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmt(v, dec=2)  { return (v !== undefined && v !== null && !isNaN(v)) ? (+v).toFixed(dec) : "—"; }
+function fmtRs(v)       { return (v !== undefined && v !== null && !isNaN(v)) ? `₹${(+v).toFixed(2)}` : "₹—"; }
+function scoreColor(s)  { return s>=9?"#00ff88":s>=7?"#00aaff":s>=6?"#ff8800":"#444"; }
+function scoreGrade(s)  { return s>=9?"PERFECT":s>=7?"STRONG":s>=6?"MODERATE":"WEAK"; }
+function scoreCap(s)    { return s>=9?5000:s>=7?2500:s>=6?1250:0; }
+function sigColor(s)    { if(!s) return "#444"; if(s.includes("BULL")) return "#00ff88"; if(s.includes("BEAR")) return "#ff4466"; return "#444"; }
+function sigBg(s)       { if(!s) return "transparent"; if(s.includes("BULL")) return "rgba(0,255,136,0.08)"; if(s.includes("BEAR")) return "rgba(255,68,102,0.08)"; return "transparent"; }
+function sigEmoji(s)    { if(!s) return "·"; if(s.includes("BULL")) return "🚀"; if(s.includes("BEAR")) return "⚠️"; return "·"; }
+
+function calcPos(entry, sl, cap) {
+  const e = parseFloat(entry), s = parseFloat(sl);
+  if (!e || !s || isNaN(e) || isNaN(s)) return { shares:0, cost:0, loss:0, gain:0 };
+  const risk = cap * (RISK_PCT / 100), rps = Math.abs(e - s);
+  if (!rps) return { shares:0, cost:0, loss:0, gain:0 };
+  const shares = Math.max(1, Math.min(Math.floor(risk / rps), Math.floor(cap / e)));
+  return {
+    shares,
+    cost:  +(shares * e).toFixed(2),
+    loss:  +(shares * rps + BROKERAGE).toFixed(2),
+    gain:  +(shares * rps * 2 - BROKERAGE).toFixed(2)
+  };
+}
+
+// ── Time ──────────────────────────────────────────────────────────────────────
+function updateTime() {
+  document.getElementById("liveTime").textContent =
+    new Date().toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit" }) + " IST";
+}
+setInterval(updateTime, 1000); updateTime();
+
+// ── Tab switch ────────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById("tabIntraday").classList.toggle("active", tab === "intraday");
+  document.getElementById("tabSwing").classList.toggle("active",    tab === "swing");
+  const list = tab === "intraday" ? INTRADAY_STOCKS : SWING_STOCKS;
+  document.getElementById("stockCount").textContent   = list.length + " stocks";
+  document.getElementById("strategyInfo").textContent = tab === "intraday"
+    ? "5MIN EMA5/10 · 1HR · Nifty · PDH/PDL · Candle · ADX · Vol · RSI · VWAP"
+    : "EMA 20/50 · Daily · Vol 1.5x · Trend · RSI";
+  document.getElementById("liveStatus").textContent = `● LIVE · ${list.length} stocks`;
+  signals = []; updateSignalLog(); loadStocks();
+}
+
+// ── Load stocks ───────────────────────────────────────────────────────────────
+function loadStocks() {
+  Object.values(intervals).forEach(clearInterval); intervals = {};
+  const list = currentTab === "intraday" ? INTRADAY_STOCKS : SWING_STOCKS;
+  const base = currentTab === "intraday" ? INTRADAY_URL : SWING_URL;
+  const container = document.getElementById("stockRows");
+  container.innerHTML = ""; stockData = {};
+  list.forEach((ticker, i) => {
+    const row = document.createElement("div");
+    row.className = "row"; row.id = `row-${ticker}`;
+    row.innerHTML = `
+      <div><div class="ticker">${ticker.replace(".NS","")}</div><div class="atr" id="atr-${ticker}"></div></div>
+      <div><div class="price" id="price-${ticker}">₹—</div><div class="change" id="chg-${ticker}">—</div></div>
+      <div><div class="val" id="rsi-${ticker}">—</div><div class="lbl">RSI</div></div>
+      <div><div class="val" id="adx-${ticker}">—</div><div class="lbl">ADX</div></div>
+      <div style="display:flex;justify-content:center" id="chart-${ticker}"></div>
+      <div><div class="val" id="vol-${ticker}">—</div><div class="lbl">VOL</div></div>
+      <div style="text-align:right" id="score-${ticker}"><span class="watching">—</span></div>
+      <div style="text-align:right" id="sig-${ticker}"><span class="watching">loading…</span></div>`;
+    row.onclick = () => { if (stockData[ticker]?.signal) openModal(ticker); };
+    container.appendChild(row);
+    setTimeout(() => fetchStock(ticker, base), i * 300);
+    intervals[ticker] = setInterval(() => fetchStock(ticker, base), currentTab === "swing" ? 300000 : 300000);
+  });
+}
+
+// ── Fetch stock ───────────────────────────────────────────────────────────────
+async function fetchStock(ticker, base) {
+  try {
+    const res  = await fetch(`${base}/scan/${ticker}`);
+    const data = await res.json();
+
+    if (data.error) {
+      document.getElementById(`sig-${ticker}`).innerHTML = `<span class="watching">skipped</span>`;
+      return;
+    }
+
+    const prev = stockData[ticker];
+    stockData[ticker] = data;
+
+    // ── Price & change ─────────────────────────────────────────────────────
+    const hist = data.history || [];
+    const chg  = hist.length > 1 ? ((data.price - hist[0]) / hist[0]) * 100 : 0;
+    const chCol = chg >= 0 ? "#00ff88" : "#ff4466";
+
+    document.getElementById(`price-${ticker}`).textContent = fmtRs(data.price);
+    document.getElementById(`chg-${ticker}`).textContent   = `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%`;
+    document.getElementById(`chg-${ticker}`).style.color   = chCol;
+    document.getElementById(`atr-${ticker}`).textContent   = data.atr ? `ATR ₹${data.atr.toFixed(1)}` : "";
+
+    // ── RSI ───────────────────────────────────────────────────────────────
+    const rsi = data.rsi;
+    document.getElementById(`rsi-${ticker}`).textContent   = fmt(rsi);
+    document.getElementById(`rsi-${ticker}`).style.color   = rsi >= 45 && rsi <= 65 ? "#00ff88" : rsi > 70 ? "#ff4466" : "#ffaa00";
+
+    // ── ADX ───────────────────────────────────────────────────────────────
+    const adx = data.adx;
+    document.getElementById(`adx-${ticker}`).textContent   = adx ? adx.toFixed(0) : "—";
+    document.getElementById(`adx-${ticker}`).style.color   = adx >= 25 ? "#00ff88" : "#444";
+
+    // ── Volume ────────────────────────────────────────────────────────────
+    const volOk = data.vol_ratio >= (currentTab === "swing" ? 1.5 : 2);
+    document.getElementById(`vol-${ticker}`).textContent   = data.vol_ratio ? `${data.vol_ratio}x` : "—";
+    document.getElementById(`vol-${ticker}`).style.color   = volOk ? "#00ff88" : "#444";
+
+    drawSparkline(`chart-${ticker}`, hist.slice(-20), chCol);
+
+    // ── Score ─────────────────────────────────────────────────────────────
+    const score = data.score || 0;
+    const sc = document.getElementById(`score-${ticker}`);
+    if (score >= 6) {
+      const c = scoreColor(score);
+      sc.innerHTML = `<span class="score-pill" style="background:${c}15;color:${c};border:1px solid ${c}40">${score}/9 ${scoreGrade(score)}</span>`;
+    } else if (score > 0) {
+      sc.innerHTML = `<span style="color:#333;font-size:10px">${score}/9</span>`;
+    } else {
+      sc.innerHTML = `<span style="color:#1a1a1a;font-size:10px">—</span>`;
+    }
+
+    // ── Signal badge ──────────────────────────────────────────────────────
+    const sig = data.signal;
+    const se  = document.getElementById(`sig-${ticker}`);
+    if (sig) {
+      const c = sigColor(sig);
+      se.innerHTML = `<span class="signal-badge" style="background:${sigBg(sig)};color:${c};border:1px solid ${c}40">${sigEmoji(sig)} ${sig}</span>`;
+
+      // ✅ FIX: only push to signals when entry/sl/target are all valid numbers
+      if ((sig === "BULLISH" || sig === "BEARISH") &&
+          score >= 6 &&
+          data.entry  !== undefined && data.entry  !== null && !isNaN(data.entry) &&
+          data.sl     !== undefined && data.sl     !== null && !isNaN(data.sl) &&
+          data.target !== undefined && data.target !== null && !isNaN(data.target)) {
+
+        document.getElementById(`row-${ticker}`).style.background =
+          sig === "BULLISH" ? "rgba(0,255,136,0.015)" : "rgba(255,68,102,0.015)";
+
+        // Only add new signal if direction changed or not yet added
+        const alreadyAdded = signals.some(s => s.ticker === ticker && s.signal === sig);
+        if (!alreadyAdded) {
+          const t = new Date().toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit" });
+          signals.push({ ...data, ticker, time:t, mode:currentTab });
+          updateSignalLog();
+        }
+      }
+    } else {
+      se.innerHTML = `<span class="watching">watching…</span>`;
+    }
+
+    const td = signals.filter(s => s.mode === currentTab).length;
+    document.getElementById("signalCount").textContent = `· ${td} signals today`;
+    document.getElementById("sigCount").textContent    = signals.length;
+
+  } catch(e) {
+    document.getElementById(`sig-${ticker}`).innerHTML = `<span class="watching">—</span>`;
+  }
+}
+
+// ── Sparkline ─────────────────────────────────────────────────────────────────
+function drawSparkline(id, data, color) {
+  if (!data || data.length < 2) return;
+  const el = document.getElementById(id); if (!el) return;
+  const w = 68, h = 24, mn = Math.min(...data), mx = Math.max(...data), range = mx - mn || 1;
+  const pts = data.map((v,i) => `${(i/(data.length-1))*w},${h-((v-mn)/range)*h}`).join(" ");
+  el.innerHTML = `<svg width="${w}" height="${h}" style="overflow:visible"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+}
+
+// ── Signal log ────────────────────────────────────────────────────────────────
+function updateSignalLog() {
+  const log = document.getElementById("signalLog");
+  if (!signals.length) {
+    log.innerHTML = `<div class="no-signals">No strong signals yet — waiting for confluences to align…</div>`;
+    return;
+  }
+  log.innerHTML = [...signals].reverse().map(s => {
+    const c   = sigColor(s.signal);
+    const sc  = scoreColor(s.score || 0);
+    const cap = scoreCap(s.score || 0);
+    const pos = calcPos(s.entry, s.sl, cap);
+    // ✅ FIX: safe display of price values
+    const eDisp  = fmtRs(s.entry);
+    const slDisp = fmtRs(s.sl);
+    const tDisp  = fmtRs(s.target);
+    return `<div class="signal-row" onclick="openModalFromSignal('${s.ticker}')">
+      <span style="font-size:13px">${sigEmoji(s.signal)}</span>
+      <span style="color:#e0e0e0;font-family:monospace;font-size:12px;font-weight:700">${s.ticker.replace(".NS","")}</span>
+      <span style="color:${c};font-size:9px;font-weight:700">${s.signal}</span>
+      <span style="color:${sc};font-size:9px;font-weight:700">${s.score||0}/9 ${scoreGrade(s.score||0)}</span>
+      <span style="color:#58a6ff;font-family:monospace;font-size:10px">E ${eDisp}</span>
+      <span style="color:#ff4466;font-family:monospace;font-size:10px">SL ${slDisp}</span>
+      <span style="color:#00ff88;font-family:monospace;font-size:10px">T ${tDisp}</span>
+      <span style="color:#ffaa00;font-size:9px">${pos.shares > 0 ? pos.shares + " qty" : "—"}</span>
+      <span style="color:#2a2a2a;font-size:9px">${s.time}</span>
+    </div>`;
+  }).join("");
+}
+
+// ── Modal open ────────────────────────────────────────────────────────────────
+function openModalFromSignal(ticker) {
+  const d = signals.find(s => s.ticker === ticker);
+  if (d) openModalWithData(d, d.mode);
+}
+function openModal(ticker) {
+  const d = stockData[ticker];
+  if (d) openModalWithData(d, currentTab);
+}
+
+function openModalWithData(data, mode) {
+  const col   = sigColor(data.signal);
+  const score = data.score || 0;
+  const sc    = scoreColor(score);
+  const cap   = scoreCap(score);
+  const pos   = calcPos(data.entry, data.sl, cap);
+  const t     = data.ticker || "";
+
+  document.getElementById("modalBox").style.border = `1px solid ${col}40`;
+
+  document.getElementById("modalHeader").innerHTML = `
+    <span style="font-size:20px">${sigEmoji(data.signal)}</span>
+    <span style="color:#fff;font-family:monospace;font-weight:700;font-size:18px">${t.replace(".NS","")}</span>
+    <span style="background:${sigBg(data.signal)};color:${col};border:1px solid ${col}50;padding:2px 10px;border-radius:20px;font-size:9px;font-weight:700">${data.signal}</span>
+    <span style="margin-left:auto;background:${mode==="swing"?"rgba(88,166,255,0.1)":"rgba(0,255,136,0.1)"};color:${mode==="swing"?"#58a6ff":"#00ff88"};border:1px solid ${mode==="swing"?"#58a6ff50":"#00ff8850"};padding:2px 8px;border-radius:20px;font-size:9px;font-weight:700">${mode==="swing"?"SWING":"INTRADAY"}</span>`;
+
+  document.getElementById("modalPrice").textContent = fmtRs(data.price);
+
+  const dots = Array.from({length:9}, (_,i) =>
+    `<div style="width:12px;height:12px;border-radius:3px;background:${i<score?sc:"#1a1a1a"}"></div>`
+  ).join("");
+
+  document.getElementById("scoreRing").innerHTML = `
+    <div>
+      <div class="score-num" style="color:${sc}">${score}<span style="font-size:18px;color:#333">/9</span></div>
+      <div style="color:${sc};font-size:12px;font-weight:700;margin-top:2px">${scoreGrade(score)} SIGNAL</div>
+    </div>
+    <div>
+      <div style="color:#333;font-size:9px;letter-spacing:1.5px;margin-bottom:8px">CONFLUENCE SCORE</div>
+      <div class="score-dots">${dots}</div>
+    </div>
+    <div style="text-align:right">
+      <div style="color:#333;font-size:9px">CAPITAL TO USE</div>
+      <div style="color:${sc};font-family:monospace;font-size:20px;font-weight:700">₹${cap.toLocaleString()}</div>
+      <div style="color:#333;font-size:9px">${score>=9?"100%":score>=7?"50%":score>=6?"25%":"—"} of ₹5,000</div>
+    </div>`;
+
+  document.getElementById("tradeCards").innerHTML = `
+    <div class="trade-card" style="background:#111;border:1px solid #58a6ff20">
+      <div class="trade-card-label">ENTRY</div>
+      <div class="trade-card-value" style="color:#58a6ff">${fmtRs(data.entry)}</div>
+    </div>
+    <div class="trade-card" style="background:#111;border:1px solid #ff446620">
+      <div class="trade-card-label">STOP LOSS</div>
+      <div class="trade-card-value" style="color:#ff4466">${fmtRs(data.sl)}</div>
+    </div>
+    <div class="trade-card" style="background:#111;border:1px solid #00ff8820">
+      <div class="trade-card-label">TARGET</div>
+      <div class="trade-card-value" style="color:#00ff88">${fmtRs(data.target)}</div>
+    </div>`;
+
+  document.getElementById("posCard").innerHTML = `
+    <div class="pos-title">POSITION SIZING · 1.5% RISK · ₹10 BROKERAGE · NO LEVERAGE</div>
+    <div class="pos-grid">
+      <div class="pos-item"><div class="pos-lbl">ACTION</div><div class="pos-val" style="color:${col}">${data.signal==="BULLISH"?"BUY":"SELL"} ${pos.shares} shares</div></div>
+      <div class="pos-item"><div class="pos-lbl">COST</div><div class="pos-val" style="color:#58a6ff">₹${pos.cost.toLocaleString()}</div></div>
+      <div class="pos-item"><div class="pos-lbl">RR RATIO</div><div class="pos-val" style="color:#ffaa00">1 : 2</div></div>
+      <div class="pos-item"><div class="pos-lbl">MAX LOSS</div><div class="pos-val" style="color:#ff4466">₹${pos.loss}</div></div>
+      <div class="pos-item"><div class="pos-lbl">MAX GAIN</div><div class="pos-val" style="color:#00ff88">₹${pos.gain}</div></div>
+      <div class="pos-item"><div class="pos-lbl">ATR</div><div class="pos-val" style="color:#ccc">${data.atr ? "₹"+data.atr.toFixed(1) : "—"}</div></div>
+    </div>
+    ${pos.gain <= 0 ? '<div style="color:#ff4466;font-size:10px;margin-top:8px;text-align:center">⚠️ Brokerage exceeds gain — skip this trade!</div>' : ""}
+    <div style="color:#333;font-size:9px;margin-top:8px;text-align:center">${mode==="intraday"?"⏰ Exit by 3:15 PM IST · Place SL immediately on entry!":"📅 Delivery trade · ₹0 brokerage · Hold 5-15 days"}</div>`;
+
+  // Confluences
+  const sc2 = data.scores || {};
+  const confs = [
+    ["EMA 5/10 Cross (5MIN)", sc2.ema_cross, `${fmt(data.ema5,1)} / ${fmt(data.ema10,1)}`],
+    ["1 Hour Trend",          sc2.hr_trend,  data.hr_trend || "—"],
+    ["Nifty 50 Trend",        sc2.nifty,     "NIFTY50"],
+    ["Volume 2x Average",     sc2.volume,    `${data.vol_ratio || "—"}x`],
+    ["VWAP Position",         sc2.vwap,      data.vwap ? fmtRs(data.vwap) : "—"],
+    ["RSI in Range",          sc2.rsi,       `RSI ${fmt(data.rsi)}`],
+    ["PDH / PDL Break",       sc2.pdh_pdl,   "Prev Day Level"],
+    ["Candle Pattern",        sc2.candle,    data.candle || "None"],
+    ["ADX Strength >25",      sc2.adx,       `ADX ${data.adx ? data.adx.toFixed(0) : "—"}`],
+  ];
+  document.getElementById("confGrid").innerHTML = confs.map(([lbl, ok, val]) => `
+    <div class="conf-item ${ok ? "conf-yes" : "conf-no"}">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="color:${ok?"#00ff88":"#ff4466"};font-size:13px;font-weight:700">${ok?"✓":"✗"}</span>
+        <span class="conf-label">${lbl}</span>
+      </div>
+      <span class="conf-val" style="color:${ok?"#bbb":"#444"}">${val}</span>
+    </div>`).join("");
+
+  const tv = t.replace(".NS", "");
+  document.getElementById("tvLink").href        = `https://www.tradingview.com/chart/?symbol=NSE:${tv}`;
+  document.getElementById("tvLink").textContent = `📊 Open ${tv} on TradingView`;
+
+  document.getElementById("aiText").innerHTML = `<span class="spinner"></span> Analyzing trade…`;
+  document.getElementById("modal").classList.add("show");
+  fetchChart(data, mode);
+  setTimeout(() => generateLocalAnalysis(data, mode), 400);
+}
+
+// ── Local AI analysis (no API key needed) ─────────────────────────────────────
+function generateLocalAnalysis(data, mode) {
+  const sc      = data.scores || {};
+  const score   = data.score  || 0;
+  const grade   = scoreGrade(score);
+  const cap     = scoreCap(score);
+  const pos     = calcPos(data.entry, data.sl, cap);
+  const isBull  = data.signal === "BULLISH";
+  const rsi     = data.rsi || 0;
+  const adx     = data.adx || 0;
+  const vol     = data.vol_ratio || 0;
+  const name    = (data.ticker || "").replace(".NS", "");
+
+  // Signal quality
+  let q1 = "";
+  if (score >= 9)      q1 = `• PERFECT setup — all 9 confluences aligned. ${isBull?"Momentum strongly bullish":"Heavy selling pressure"} on ${name}. High-conviction trade, deploy full ₹5,000 capital.`;
+  else if (score >= 7) q1 = `• STRONG signal with ${score}/9 confluences. ${sc.hr_trend?"1HR trend agrees ✓":"1HR trend not fully aligned ⚠️"}. ${sc.nifty?"Nifty supports direction ✓":"Trade against Nifty — use tight SL ⚠️"}. Use ₹2,500 (half capital).`;
+  else                 q1 = `• MODERATE setup — ${score}/9 confluences. Entry is valid but conviction is limited. Use only ₹1,250 (quarter capital) and be ready to exit fast.`;
+
+  // Key levels
+  const rrPct  = data.entry ? Math.abs((data.target - data.entry) / data.entry * 100).toFixed(2) : "—";
+  const slPct  = data.entry ? Math.abs((data.sl - data.entry)     / data.entry * 100).toFixed(2) : "—";
+  let q2 = `• Key levels — Entry ${fmtRs(data.entry)} → Target ${fmtRs(data.target)} (+${rrPct}%) | SL ${fmtRs(data.sl)} (-${slPct}%). ATR-based SL gives ${data.atr ? "₹"+data.atr.toFixed(1) : "—"} breathing room. RR 1:2.`;
+
+  // Risk factors
+  const risks = [];
+  if (rsi > 68)                              risks.push("RSI overbought (>" + rsi.toFixed(0) + ") — pullback risk");
+  if (rsi < 35)                              risks.push("RSI oversold (<" + rsi.toFixed(0) + ") — bounce possible");
+  if (adx < 20)                              risks.push("ADX " + adx.toFixed(0) + " — weak trend, choppy price action likely");
+  if (vol < 1.5)                             risks.push("Volume only " + vol + "x — low conviction move");
+  if (!sc.hr_trend)                          risks.push("1HR trend not aligned — counter-trend trade");
+  if (!sc.nifty)                             risks.push("Nifty trending opposite — broad market headwind");
+  if (pos.gain <= 0)                         risks.push("Brokerage kills profit on this lot size — skip!");
+  if (mode === "intraday")                   risks.push("Must exit by 3:15 PM IST regardless of outcome");
+  if (risks.length === 0)                    risks.push("No major red flags — clean setup");
+
+  let q3 = `• Main risks — ${risks.slice(0,2).join("; ")}.`;
+  if (pos.shares > 0) {
+    q3 += ` Position: ${pos.shares} shares | Risk ₹${pos.loss} | Max gain ₹${pos.gain}.`;
+  }
+
+  document.getElementById("aiText").textContent = [q1, q2, q3].join("\n\n");
+}
+
+// ── Chart ─────────────────────────────────────────────────────────────────────
+async function fetchChart(data, mode) {
+  const box = document.getElementById("chartBox"); box.style.display = "none";
+  try {
+    const server = mode === "swing" ? SWING_URL : INTRADAY_URL;
+    const res    = await fetch(`${server}/backtest/${data.ticker}?period=${mode==="swing"?"3mo":"1mo"}`);
+    if (!res.ok) return;
+    const d = await res.json();
+    if (!d.closes || d.closes.length < 10) return;
+    box.style.display = "block";
+    await new Promise(r => setTimeout(r, 50));
+    const canvas = document.getElementById("priceChart");
+    const closes = d.closes, highs = d.highs, lows = d.lows, dates = d.dates, n = closes.length;
+
+    function ema(arr, p) {
+      const k = 2/(p+1), out = [];
+      arr.forEach((v,i) => out.push(i===0 ? v : v*k + out[i-1]*(1-k)));
+      return out;
+    }
+    const e5  = ema(closes, 5);
+    const e10 = ema(closes, 10);
+
+    const ctx    = canvas.getContext("2d");
+    canvas.width = box.offsetWidth - 24 || 600; canvas.height = 150;
+    const W = canvas.width, H = canvas.height, pad = {t:10, b:22, l:8, r:8};
+    const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
+    const allP  = [...closes, ...highs, ...lows, data.entry, data.sl, data.target].filter(v => v !== undefined && !isNaN(v));
+    const mn    = Math.min(...allP) * 0.998, mx = Math.max(...allP) * 1.002, range = mx - mn;
+    const xP    = i => pad.l + (i/(n-1)) * cW;
+    const yP    = v => pad.t + cH - ((v-mn)/range) * cH;
+
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = "#0a0a0a"; ctx.fillRect(0,0,W,H);
+
+    // Grid lines
+    ctx.strokeStyle = "#111"; ctx.lineWidth = 0.5;
+    [0.25, 0.5, 0.75].forEach(f => {
+      ctx.beginPath(); ctx.moveTo(pad.l, pad.t + cH*f); ctx.lineTo(W-pad.r, pad.t + cH*f); ctx.stroke();
+    });
+
+    // Level lines
+    function hLine(v, c, lbl) {
+      if (v === undefined || isNaN(v)) return;
+      const y = yP(v);
+      ctx.beginPath(); ctx.setLineDash([4,4]); ctx.strokeStyle = c+"90"; ctx.lineWidth = 1;
+      ctx.moveTo(pad.l, y); ctx.lineTo(W-pad.r, y); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = c; ctx.font = "9px monospace";
+      ctx.fillText(`${lbl} ₹${(+v).toFixed(2)}`, pad.l+4, y-3);
+    }
+    if (data.target) hLine(data.target, "#00ff88", "TGT");
+    if (data.entry)  hLine(data.entry,  "#58a6ff", "ENT");
+    if (data.sl)     hLine(data.sl,     "#ff4466", "SL");
+
+    // Candles
+    ctx.strokeStyle = "#555"; ctx.lineWidth = 0.8;
+    closes.forEach((_,i) => {
+      ctx.beginPath(); ctx.moveTo(xP(i), yP(highs[i])); ctx.lineTo(xP(i), yP(lows[i])); ctx.stroke();
+    });
+    closes.forEach((c,i) => {
+      const o = d.opens[i] || c, isUp = c >= o;
+      ctx.fillStyle   = isUp ? "#00ff8840" : "#ff446640";
+      ctx.strokeStyle = isUp ? "#00ff88"   : "#ff4466";
+      ctx.lineWidth   = 0.5;
+      const x = xP(i)-2, y1 = yP(Math.max(c,o)), y2 = yP(Math.min(c,o));
+      ctx.fillRect(x, y1, 4, Math.max(1, y2-y1));
+      ctx.strokeRect(x, y1, 4, Math.max(1, y2-y1));
+    });
+
+    // EMAs
+    ctx.beginPath(); ctx.strokeStyle = "#ff880090"; ctx.lineWidth = 1.5; ctx.setLineDash([]);
+    e10.forEach((v,i) => i===0 ? ctx.moveTo(xP(i), yP(v)) : ctx.lineTo(xP(i), yP(v))); ctx.stroke();
+    ctx.beginPath(); ctx.strokeStyle = "#58a6ff"; ctx.lineWidth = 1.5;
+    e5.forEach((v,i)  => i===0 ? ctx.moveTo(xP(i), yP(v)) : ctx.lineTo(xP(i), yP(v))); ctx.stroke();
+
+    // Date labels
+    ctx.fillStyle = "#333"; ctx.font = "8px monospace";
+    [0, Math.floor(n/2), n-1].forEach(i => {
+      if (dates[i]) ctx.fillText(dates[i].slice(5), xP(i)-10, H-5);
+    });
+
+    // Legend
+    ctx.fillStyle = "#58a6ff"; ctx.fillRect(W-90, 8, 20, 2);  ctx.fillText("EMA5",  W-66, 12);
+    ctx.fillStyle = "#ff8800"; ctx.fillRect(W-90, 18, 20, 2); ctx.fillText("EMA10", W-66, 22);
+
+  } catch(e) { console.log("Chart error:", e); }
+}
+
+// ── Modal close ───────────────────────────────────────────────────────────────
+function closeModal() { document.getElementById("modal").classList.remove("show"); }
+document.getElementById("modal").onclick = function(e) { if (e.target === this) closeModal(); };
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+document.getElementById("stockCount").textContent = INTRADAY_STOCKS.length + " stocks";
+document.getElementById("liveStatus").textContent = `● LIVE · ${INTRADAY_STOCKS.length} stocks`;
+loadStocks();
+</script>
+</body>
+</html>
