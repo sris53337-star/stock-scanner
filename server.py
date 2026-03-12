@@ -22,6 +22,7 @@ BROKERAGE      = 10
 LEVERAGE       = 1
 MIN_CONFLUENCE = 6
 MIN_GAIN       = 20
+MIN_ATR_PCT    = 0.3
 COOLDOWN_MINS  = 120
 
 sent_signals  = {}
@@ -484,6 +485,10 @@ def scan(ticker):
                 "message": "Brokerage exceeds profit - skip trade!"
             })
 
+        atr_pct = (atr_val / price) * 100
+        if atr_pct < MIN_ATR_PCT:
+            return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
+                            "score": total_score, "message": f"ATR {atr_pct:.2f}% too small — skipped"})
         if vol_ratio == 0:
             return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
                             "score": total_score, "message": "Zero volume — skipped"})
