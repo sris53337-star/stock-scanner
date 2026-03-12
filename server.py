@@ -30,6 +30,28 @@ active_trades = {}
 eod_sent_date = ""
 _signal_times = {}
 
+TRADES_FILE = "active_trades.json"
+
+def save_trades():
+    try:
+        import json
+        with open(TRADES_FILE, "w") as f:
+            json.dump(active_trades, f)
+    except:
+        pass
+
+def load_trades():
+    try:
+        import json
+        with open(TRADES_FILE, "r") as f:
+            data = json.load(f)
+            active_trades.update(data)
+            print(f"Restored {len(data)} active trades from file")
+    except:
+        pass
+
+load_trades()
+
 _nifty_cache = {"trend": "NEUTRAL", "ts": 0}
 NIFTY_TTL    = 300
 
@@ -206,6 +228,7 @@ def monitor_trades():
                 active_trades.clear()
                 _pdh_cache.clear()
                 _signal_times.clear()
+                save_trades()
 
             for ticker in list(active_trades.keys()):
                 trade = active_trades[ticker]
@@ -273,6 +296,7 @@ def monitor_trades():
                             "pnl":        pnl
                         })
                         del active_trades[ticker]
+                        save_trades()
                 except:
                     pass
                 finally:
@@ -578,6 +602,7 @@ def scan(ticker):
                 'target': target,
                 'shares': shares
             }
+            save_trades()
 
         return jsonify({
             "ticker":      ticker,
