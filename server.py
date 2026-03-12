@@ -6,7 +6,8 @@ import requests as req
 import os
 import threading
 import time
-import gc                       
+import gc
+import json
 from datetime import datetime
 
 app = Flask(__name__)
@@ -34,7 +35,6 @@ TRADES_FILE = "active_trades.json"
 
 def save_trades():
     try:
-        import json
         with open(TRADES_FILE, "w") as f:
             json.dump(active_trades, f)
     except:
@@ -42,7 +42,6 @@ def save_trades():
 
 def load_trades():
     try:
-        import json
         with open(TRADES_FILE, "r") as f:
             data = json.load(f)
             active_trades.update(data)
@@ -93,7 +92,7 @@ def compute_atr(df, period=14):
     high_low   = df['High'] - df['Low']
     high_close = (df['High'] - df['Close'].shift()).abs()
     low_close  = (df['Low']  - df['Close'].shift()).abs()
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    tr = high_low.combine(high_close, max).combine(low_close, max)
     return tr.rolling(window=period).mean()
 
 def compute_vwap(df):
@@ -725,7 +724,7 @@ def auto_scan_loop():
                             scan(ticker)
                     except Exception as e:
                         print(f"Auto-scan error {ticker}: {e}")
-                    time.sleep(3)
+                    time.sleep(2)
                 gc.collect()
                 _scan_running = False
                 print(f"Auto-scan DONE")
