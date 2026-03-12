@@ -574,7 +574,7 @@ def scan(ticker):
                 "date":      now_utc.strftime("%d-%b-%Y"),
                 "time":      now_utc.strftime("%H:%M"),
                 "ticker":    ticker,
-                "signal":    direction,
+                "signal":    f"INTRADAY {direction}",
                 "score":     total_score,
                 "grade":     signal_grade,
                 "entry":     entry,
