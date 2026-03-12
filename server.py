@@ -12,12 +12,10 @@ from datetime import datetime
 app = Flask(__name__)
 CORS(app, origins="*", supports_credentials=False)
 
-# ── Config ────────────────────────────────────────────────────────────────────
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 SHEETS_URL       = "https://script.google.com/macros/s/AKfycbzu0aDb-n4re6qw_RtkkAYA-EbdhQcTnS9DoDd4wxhb4DTMKE89SUFxqtoeAa2mBx_V/exec"
 
-# Trading config
 CAPITAL        = 5000
 RISK_PCT       = 1.5
 BROKERAGE      = 10
@@ -32,11 +30,10 @@ eod_sent_date = ""
 _signal_times = {}
 
 _nifty_cache = {"trend": "NEUTRAL", "ts": 0}
-NIFTY_TTL    = 300   # refresh every 5 minutes
+NIFTY_TTL    = 300
 
-_pdh_cache = {}      # {ticker: (pdh, pdl, date_str)}
+_pdh_cache = {}
 
-# ── Telegram ──────────────────────────────────────────────────────────────────
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("Telegram: TOKEN or CHAT_ID missing!")
@@ -53,14 +50,12 @@ def send_telegram(message):
     except Exception as e:
         print(f"Telegram error: {e}")
 
-# ── Google Sheets ─────────────────────────────────────────────────────────────
 def log_to_sheets(data):
     try:
         req.post(SHEETS_URL, json=data, timeout=10)
     except:
         pass
 
-# ── Indicators ────────────────────────────────────────────────────────────────
 def compute_ema(series, period):
     return series.ewm(span=period, adjust=False).mean()
 
@@ -182,7 +177,7 @@ def get_nifty_trend():
         _nifty_cache["ts"]    = now
         return trend
     except:
-        return _nifty_cache["trend"]   # return stale on error
+        return _nifty_cache["trend"]
 
 def load_watchlist():
     try:
@@ -191,7 +186,6 @@ def load_watchlist():
     except:
         return ["ITC.NS", "RELIANCE.NS", "INFY.NS"]
 
-# ── Trade Monitor ─────────────────────────────────────────────────────────────
 def monitor_trades():
     global eod_sent_date
     while True:
@@ -323,7 +317,6 @@ def send_eod_summary():
 monitor_thread = threading.Thread(target=monitor_trades, daemon=True)
 monitor_thread.start()
 
-# ── Scan Route ────────────────────────────────────────────────────────────────
 @app.route("/scan/<ticker>")
 def scan(ticker):
     df5  = None
@@ -339,8 +332,6 @@ def scan(ticker):
 
         print(f"SCAN {ticker} | IST {ist_hour:02d}:{ist_minute:02d} | too_early={too_early} too_late={too_late}")
 
-        # ── 5 MIN data ────────────────────────────────────────────────────────
-     
         df5 = yf.download(ticker, period="1d", interval="5m", progress=False)
         if isinstance(df5.columns, pd.MultiIndex):
             df5.columns = df5.columns.get_level_values(0)
@@ -384,7 +375,6 @@ def scan(ticker):
         del df5
         df5 = None
 
-        # ── 1 HR trend ────────────────────────────────────────────────────────
      
         df1h = yf.download(ticker, period="5d", interval="1h", progress=False)
         if isinstance(df1h.columns, pd.MultiIndex):
@@ -401,10 +391,9 @@ def scan(ticker):
         del df1h
         df1h = None
 
-        nifty_trend = get_nifty_trend()           # cached — no download
-        pdh, pdl    = get_pdh_pdl(ticker)         # cached — no download after first call
+        nifty_trend = get_nifty_trend()
+        pdh, pdl    = get_pdh_pdl(ticker)
 
-        # ── Direction ─────────────────────────────────────────────────────────
         if ema_bull_5m:
             direction = "BULLISH"
         elif ema_bear_5m:
@@ -418,7 +407,6 @@ def scan(ticker):
                 "message": "No EMA crossover"
             })
 
-        # ── Confluence scoring ────────────────────────────────────────────────
         scores = {}
         scores['ema_cross'] = True
         scores['hr_trend']  = (direction == hr_trend)
@@ -439,7 +427,6 @@ def scan(ticker):
               f"vol={scores['volume']}({vol_ratio}x) vwap={scores['vwap']} rsi={scores['rsi']}({rsi}) "
               f"pdh={scores['pdh_pdl']} candle={scores['candle']} adx={scores['adx']}({adx_val})")
 
-        # ── Entry / SL / Target ───────────────────────────────────────────────
         if direction == "BULLISH":
             entry  = round(price, 2)
             sl     = round(price - atr_val, 2)
@@ -449,7 +436,6 @@ def scan(ticker):
             sl     = round(price + atr_val, 2)
             target = round(price - atr_val * 2, 2)
 
-        # ── Grade ─────────────────────────────────────────────────────────────
         if total_score >= 8:
             trade_capital = CAPITAL
             signal_grade  = "PERFECT"
@@ -475,7 +461,6 @@ def scan(ticker):
                 "message": f"Score {total_score}/9 below minimum {MIN_CONFLUENCE}"
             })
 
-        # ── Position sizing ───────────────────────────────────────────────────
         risk_amount    = trade_capital * (RISK_PCT / 100)
         risk_per_share = abs(entry - sl)
         if risk_per_share == 0:
@@ -499,8 +484,6 @@ def scan(ticker):
                 "message": "Brokerage exceeds profit - skip trade!"
             })
 
-        # ── Fire signal ───────────────────────────────────────────────────────
-        # Hard filters — skip before even checking signal_key
         if vol_ratio == 0:
             return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
                             "score": total_score, "message": "Zero volume — skipped"})
@@ -620,7 +603,6 @@ def scan(ticker):
         if df5  is not None: del df5
         if df1h is not None: del df1h
 
-# ── Other Routes ──────────────────────────────────────────────────────────────
 @app.route("/watchlist")
 def get_watchlist():
     return jsonify(load_watchlist())
@@ -686,14 +668,11 @@ def test_alert():
 def ping():
     return "ok"
 
-# ── Auto-Scan Loop ────────────────────────────────────────────────────────────
-_scan_running = False   # prevents two scan cycles overlapping
+_scan_running = False
 
 def auto_scan_loop():
     global _scan_running
-    time.sleep(150)     # offset by 2.5 mins so monitor_thread and scan_thread
-                        # never fire at the same time (monitor fires at 0,5,10...
-                        # scan fires at 2.5, 7.5, 12.5... mins)
+    time.sleep(150)
     print("Auto-scan loop started.")
     while True:
         try:
@@ -716,7 +695,7 @@ def auto_scan_loop():
                             scan(ticker)
                     except Exception as e:
                         print(f"Auto-scan error {ticker}: {e}")
-                    time.sleep(3)   # 3s stagger: 99 × 3s = ~5 mins, safe for yfinance
+                    time.sleep(3)
                 gc.collect()
                 _scan_running = False
                 print(f"Auto-scan DONE")
@@ -726,7 +705,7 @@ def auto_scan_loop():
                 print(f"Auto-scan: market closed | IST {ist_hour:02d}:{ist_min:02d}")
 
         except Exception as e:
-            _scan_running = False   # reset flag if loop crashes
+            _scan_running = False
             print(f"Auto-scan loop error: {e}")
 
         time.sleep(300)
