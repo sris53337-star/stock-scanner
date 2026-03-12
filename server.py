@@ -22,11 +22,14 @@ CAPITAL        = 5000
 RISK_PCT       = 1.5
 BROKERAGE      = 10
 LEVERAGE       = 1
-MIN_CONFLUENCE = 5
+MIN_CONFLUENCE = 6
+MIN_GAIN       = 20
+COOLDOWN_MINS  = 120
 
 sent_signals  = {}
 active_trades = {}
 eod_sent_date = ""
+_signal_times = {}
 
 _nifty_cache = {"trend": "NEUTRAL", "ts": 0}
 NIFTY_TTL    = 300   # refresh every 5 minutes
@@ -206,6 +209,7 @@ def monitor_trades():
                 sent_signals.clear()
                 active_trades.clear()
                 _pdh_cache.clear()
+                _signal_times.clear()
 
             for ticker in list(active_trades.keys()):
                 trade = active_trades[ticker]
@@ -495,9 +499,22 @@ def scan(ticker):
             })
 
         # ── Fire signal ───────────────────────────────────────────────────────
+        # Hard filters — skip before even checking signal_key
+        if vol_ratio == 0:
+            return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
+                            "score": total_score, "message": "Zero volume — skipped"})
+        if max_gain < MIN_GAIN:
+            return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
+                            "score": total_score, "message": f"Max gain Rs.{max_gain} below minimum Rs.{MIN_GAIN}"})
+
         signal_key = f"{ticker}_{direction}"
-        print(f"GATE {ticker} | key_exists={signal_key in sent_signals} too_early={too_early} too_late={too_late} score={total_score}")
-        if signal_key not in sent_signals and not too_early and not too_late:
+        now_ts     = time.time()
+        last_fired = _signal_times.get(signal_key, 0)
+        cooldown_ok = (now_ts - last_fired) > (COOLDOWN_MINS * 60)
+
+        print(f"GATE {ticker} | key_exists={signal_key in sent_signals} cooldown_ok={cooldown_ok} too_early={too_early} too_late={too_late} score={total_score}")
+        if signal_key not in sent_signals and cooldown_ok and not too_early and not too_late:
+            _signal_times[signal_key] = now_ts
             sent_signals[signal_key] = {
                 'signal': direction,
                 'score':  total_score
