@@ -338,8 +338,13 @@ def send_eod_summary():
     except:
         pass
 
-monitor_thread = threading.Thread(target=monitor_trades, daemon=True)
-monitor_thread.start()
+def delayed_start():
+    time.sleep(5)
+    monitor_thread = threading.Thread(target=monitor_trades, daemon=True)
+    monitor_thread.start()
+
+starter = threading.Thread(target=delayed_start, daemon=True)
+starter.start()
 
 @app.route("/scan/<ticker>")
 def scan(ticker):
