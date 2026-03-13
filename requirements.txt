@@ -4,6 +4,4 @@ yfinance
 pandas
 gunicorn
 requests
-matplotlib
-mplfinance
-numpy
+
