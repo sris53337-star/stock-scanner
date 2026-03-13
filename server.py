@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import yfinance as yf
 import pandas as pd
@@ -631,6 +631,10 @@ def scan(ticker):
     finally:
         if df5  is not None: del df5
         if df1h is not None: del df1h
+
+@app.route("/")
+def index():
+    return send_from_directory(".", "index.html")
 
 @app.route("/watchlist")
 def get_watchlist():
