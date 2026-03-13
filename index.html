@@ -327,8 +327,8 @@ function loadStocks() {
       <div style="text-align:right" id="sig-${ticker}"><span class="watching">loading…</span></div>`;
     row.onclick = () => { if (stockData[ticker]?.signal) openModal(ticker); };
     container.appendChild(row);
-    setTimeout(() => fetchStock(ticker, base), i * 300);
-    intervals[ticker] = setInterval(() => fetchStock(ticker, base), currentTab === "swing" ? 300000 : 300000);
+    setTimeout(() => fetchStock(ticker, base), i * 2000);
+    intervals[ticker] = setInterval(() => fetchStock(ticker, base), currentTab === "swing" ? 600000 : 600000);
   });
 }
 
