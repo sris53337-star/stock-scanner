@@ -22,7 +22,7 @@ RISK_PCT       = 1.5
 BROKERAGE      = 10
 LEVERAGE       = 1
 MIN_CONFLUENCE = 6
-MIN_GAIN       = 30
+MIN_GAIN       = 20
 MIN_ATR_PCT    = 0.3
 COOLDOWN_MINS  = 120
 
