@@ -22,7 +22,6 @@ RISK_PCT       = 1.5
 BROKERAGE      = 10
 LEVERAGE       = 1
 MIN_CONFLUENCE = 6
-MIN_GAIN       = 20
 MIN_ATR_PCT    = 0.3
 COOLDOWN_MINS  = 120
 
@@ -520,9 +519,6 @@ def scan(ticker):
         if vol_ratio < 0.5:
             return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
                             "score": total_score, "message": f"Volume {vol_ratio}x too low — skipped"})
-        if max_gain < MIN_GAIN:
-            return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
-                            "score": total_score, "message": f"Max gain Rs.{max_gain} below minimum Rs.{MIN_GAIN}"})
 
         signal_key = f"{ticker}_{direction}"
         now_ts     = time.time()
