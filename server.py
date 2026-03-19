@@ -364,7 +364,7 @@ def scan(ticker):
         if isinstance(df5.columns, pd.MultiIndex):
             df5.columns = df5.columns.get_level_values(0)
         df5 = df5.dropna()
-        if len(df5) < 20:
+        if len(df5) < 5:
             return jsonify({"error": "Not enough 5min data"}), 404
 
      
