@@ -550,6 +550,8 @@ def scan(ticker):
             )
 
             msg = (
+                f"🤖 <b>DUAL EMA CROSSOVER SCANNER</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{dir_emoji} <b>INTRADAY {direction}</b>\n"
                 f"<b>{tv_symbol}</b> @ Rs.{round(price, 2)}\n\n"
                 f"<b>CONFLUENCES ({total_score}/9):</b>\n"
