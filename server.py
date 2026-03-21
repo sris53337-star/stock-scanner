@@ -15,7 +15,7 @@ CORS(app, origins="*", supports_credentials=False)
 
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-SHEETS_URL       = "https://script.google.com/macros/s/AKfycbzu0aDb-n4re6qw_RtkkAYA-EbdhQcTnS9DoDd4wxhb4DTMKE89SUFxqtoeAa2mBx_V/exec"
+SHEETS_URL       = "https://script.google.com/macros/s/AKfycbygvsRmTtjm8FZp0NsmHrbSkuN8FeiF2u2zCSnGTYue1yYsyrYP1xjjBSaIlAcpgoOG3A/exec"
 
 CAPITAL        = 5000
 RISK_PCT       = 5
