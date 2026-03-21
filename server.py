@@ -48,7 +48,26 @@ def load_trades():
     except:
         pass
 
+SIGNAL_TIMES_FILE = "signal_times.json"
+
+def save_signal_times():
+    try:
+        with open(SIGNAL_TIMES_FILE, "w") as f:
+            json.dump(_signal_times, f)
+    except:
+        pass
+
+def load_signal_times():
+    try:
+        with open(SIGNAL_TIMES_FILE, "r") as f:
+            data = json.load(f)
+            _signal_times.update(data)
+            print(f"Restored {len(data)} signal times")
+    except:
+        pass
+
 load_trades()
+load_signal_times()
 
 _nifty_cache = {"trend": "NEUTRAL", "ts": 0}
 NIFTY_TTL    = 300
@@ -226,6 +245,7 @@ def monitor_trades():
                 active_trades.clear()
                 _pdh_cache.clear()
                 _signal_times.clear()
+                save_signal_times()
                 save_trades()
 
             for ticker in list(active_trades.keys()):
@@ -263,15 +283,15 @@ def monitor_trades():
                         elif current_price >= sl:
                             result, exit_price = 'SL HIT', sl
 
-                    if ist_hour == 15 and ist_minute >= 20 and not result:
-                        result, exit_price = 'MANUAL EXIT', current_price
+                    if ist_hour == 15 and ist_minute >= 15 and not result:
+                        result, exit_price = 'EOD EXIT 3:15PM', current_price
 
                     if result:
                         pnl          = round(shares * (exit_price - entry) *
                                              (1 if signal == 'BULLISH' else -1) - BROKERAGE, 2)
                         result_label = ("TARGET HIT" if "TARGET" in result
                                         else "SL HIT"     if "SL"     in result
-                                        else "MANUAL EXIT")
+                                        else "EOD EXIT 3:15PM")
                         emoji        = ("🎯" if "TARGET" in result
                                         else "🛑" if "SL" in result
                                         else "🔚")
@@ -528,6 +548,7 @@ def scan(ticker):
         print(f"GATE {ticker} | key_exists={signal_key in sent_signals} cooldown_ok={cooldown_ok} too_early={too_early} too_late={too_late} score={total_score}")
         if signal_key not in sent_signals and cooldown_ok and not too_early and not too_late:
             _signal_times[signal_key] = now_ts
+            save_signal_times()
             sent_signals[signal_key] = {
                 'signal': direction,
                 'score':  total_score
