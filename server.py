@@ -20,7 +20,7 @@ SHEETS_URL       = "https://script.google.com/macros/s/AKfycbygvsRmTtjm8FZp0NsmH
 CAPITAL        = 5000
 RISK_PCT       = 5
 BROKERAGE      = 10
-MIN_CONFLUENCE = 7
+MIN_CONFLUENCE = 6
 MIN_ATR_PCT    = 0.3
 COOLDOWN_MINS  = 120
 NIFTY_TTL      = 300
@@ -133,6 +133,41 @@ def compute_bb(series, period=20):
     lower = ma - 2 * std
     width = (upper - lower) / ma
     return upper, lower, width
+
+def compute_supertrend(df, period=10, multiplier=3.0):
+    try:
+        hl2   = (df['High'] + df['Low']) / 2
+        atr   = compute_atr(df, period)
+        upper = hl2 + multiplier * atr
+        lower = hl2 - multiplier * atr
+
+        supertrend = [True] * len(df)
+        upper_band = upper.copy()
+        lower_band = lower.copy()
+
+        for i in range(1, len(df)):
+            if df['Close'].iloc[i-1] <= upper_band.iloc[i-1]:
+                upper_band.iloc[i] = min(upper.iloc[i], upper_band.iloc[i-1])
+            else:
+                upper_band.iloc[i] = upper.iloc[i]
+
+            if df['Close'].iloc[i-1] >= lower_band.iloc[i-1]:
+                lower_band.iloc[i] = max(lower.iloc[i], lower_band.iloc[i-1])
+            else:
+                lower_band.iloc[i] = lower.iloc[i]
+
+            if supertrend[i-1] and df['Close'].iloc[i] < lower_band.iloc[i]:
+                supertrend[i] = False
+            elif not supertrend[i-1] and df['Close'].iloc[i] > upper_band.iloc[i]:
+                supertrend[i] = True
+            else:
+                supertrend[i] = supertrend[i-1]
+
+        import pandas as pd
+        return pd.Series(supertrend, index=df.index)
+    except:
+        import pandas as pd
+        return pd.Series([True] * len(df), index=df.index)
 
 def compute_adx(df, period=14):
     try:
@@ -348,7 +383,7 @@ def send_eod_summary():
             f"📊 <b>EOD SUMMARY</b> — {datetime.utcnow().strftime('%d %b %Y')}\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
             f"🟢 Bullish: {len(bullish)} | 🔴 Bearish: {len(bearish)}\n"
-            f"📈 Total: {total} | Avg Score: {avg_score}/12\n"
+            f"📈 Total: {total} | Avg Score: {avg_score}/11\n"
             f"🔍 Scanned: {len(watchlist)} stocks\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
         )
@@ -400,6 +435,7 @@ def scan(ticker):
         df5['CCI']      = compute_cci(df5, 20)
         df5['MACD_H']   = compute_macd_hist(df5['Close'])
         df5['BB_U'], df5['BB_L'], df5['BB_W'] = compute_bb(df5['Close'], 20)
+        df5['ST_BULL'] = compute_supertrend(df5, period=10, multiplier=3.0)
         df5 = df5.dropna()
 
         if len(df5) < 3:
@@ -422,7 +458,8 @@ def scan(ticker):
         macd_hist  = round(float(last5['MACD_H']), 4)
         bb_upper   = round(float(last5['BB_U']), 2)
         bb_lower   = round(float(last5['BB_L']), 2)
-        above_vwap = price > vwap_val
+        above_vwap   = price > vwap_val
+        st_bullish   = bool(last5["ST_BULL"])
 
         last3_c = df5['Close'].iloc[-3:].values
         last3_o = df5['Open'].iloc[-3:].values
@@ -463,12 +500,12 @@ def scan(ticker):
         scores['candle']      = (direction == candle_dir)
         scores['macd_hist']   = (macd_hist > 0) if direction == "BULLISH" else (macd_hist < 0)
         scores['cci']         = (cci_val > 100) if direction == "BULLISH" else (cci_val < -100)
-        scores['bb_expand']   = (price > bb_upper) if direction == "BULLISH" else (price < bb_lower)
         scores['consec']      = bool(
             (direction == "BULLISH" and last3_c[-1] > last3_o[-1] and last3_c[-2] > last3_o[-2]) or
             (direction == "BEARISH" and last3_c[-1] < last3_o[-1] and last3_c[-2] < last3_o[-2])
         )
-        scores['time_window'] = good_time
+        scores['time_window']  = good_time
+        scores['supertrend']   = st_bullish if direction == 'BULLISH' else not st_bullish
 
         total_score = sum(scores.values())
 
@@ -476,7 +513,7 @@ def scan(ticker):
               f"ema={scores['ema_cross']} nifty={scores['nifty']} "
               f"vol={scores['volume']}({vol_ratio}x) vwap={scores['vwap']} rsi={scores['rsi']}({rsi}) "
               f"pdh={scores['pdh_pdl']} candle={scores['candle']} macd={scores['macd_hist']}({macd_hist}) "
-              f"cci={scores['cci']}({cci_val}) bb={scores['bb_expand']} consec={scores['consec']} time={scores['time_window']}")
+              f"cci={scores['cci']}({cci_val}) consec={scores['consec']} time={scores['time_window']}")
 
         atr_pct = (atr_val / price) * 100
         if atr_pct < MIN_ATR_PCT:
@@ -561,7 +598,6 @@ def scan(ticker):
                 f"{'✅' if scores['candle']      else '❌'} {candle_name}\n"
                 f"{'✅' if scores['macd_hist']   else '❌'} MACD Hist {macd_hist}\n"
                 f"{'✅' if scores['cci']         else '❌'} CCI {cci_val}\n"
-                f"{'✅' if scores['bb_expand']   else '❌'} BB Expansion\n"
                 f"{'✅' if scores['consec']      else '❌'} Consecutive Candles\n"
                 f"{'✅' if scores['time_window'] else '❌'} Prime Time Window"
             )
