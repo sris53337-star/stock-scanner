@@ -524,7 +524,7 @@ function openModalWithData(data, mode) {
     </div>`;
 
   document.getElementById("posCard").innerHTML = `
-    <div class="pos-title">POSITION SIZING · 1.5% RISK · ₹10 BROKERAGE · NO LEVERAGE</div>
+    <div class="pos-title">POSITION SIZING · 5% RISK · ₹10 BROKERAGE · ATR BASED SL</div>
     <div class="pos-grid">
       <div class="pos-item"><div class="pos-lbl">ACTION</div><div class="pos-val" style="color:${col}">${data.signal==="BULLISH"?"BUY":"SELL"} ${pos.shares} shares</div></div>
       <div class="pos-item"><div class="pos-lbl">COST</div><div class="pos-val" style="color:#58a6ff">₹${pos.cost.toLocaleString()}</div></div>
