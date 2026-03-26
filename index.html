@@ -159,7 +159,7 @@ body { background:#060606; color:#c0c0c0; font-family:'Courier New',monospace; }
 
   <div class="stats">
     <span id="stockCount">56 stocks</span>
-    <span id="strategyInfo" class="stat-pill">5MIN EMA5/10 · 1HR · Nifty · PDH/PDL · Candle · ADX · Vol · RSI · VWAP</span>
+    <span id="strategyInfo" class="stat-pill">5MIN EMA5/10 · Nifty · VWAP · RSI · PDH/PDL · Candle · MACD · CCI · Supertrend · Time</span>
     <span class="stat-pill">RR 1:2 · ATR SL</span>
     <span class="signals" id="signalCount">· 0 signals today</span>
   </div>
@@ -300,7 +300,7 @@ function switchTab(tab) {
   const list = tab === "intraday" ? INTRADAY_STOCKS : SWING_STOCKS;
   document.getElementById("stockCount").textContent   = list.length + " stocks";
   document.getElementById("strategyInfo").textContent = tab === "intraday"
-    ? "5MIN EMA5/10 · 1HR · Nifty · PDH/PDL · Candle · ADX · Vol · RSI · VWAP"
+    ? "5MIN EMA5/10 · Nifty · VWAP · RSI · PDH/PDL · Candle · MACD · CCI · Supertrend · Time"
     : "EMA 20/50 · Daily · Vol 1.5x · Trend · RSI";
   document.getElementById("liveStatus").textContent = `● LIVE · ${list.length} stocks`;
   signals = []; updateSignalLog(); loadStocks();
@@ -380,7 +380,7 @@ async function fetchStock(ticker, base) {
       const c = scoreColor(score);
       sc.innerHTML = `<span class="score-pill" style="background:${c}15;color:${c};border:1px solid ${c}40">${score}/9 ${scoreGrade(score)}</span>`;
     } else if (score > 0) {
-      sc.innerHTML = `<span style="color:#333;font-size:10px">${score}/9</span>`;
+      sc.innerHTML = `<span style="color:#333;font-size:10px">${score}/12</span>`;
     } else {
       sc.innerHTML = `<span style="color:#1a1a1a;font-size:10px">—</span>`;
     }
@@ -452,7 +452,7 @@ function updateSignalLog() {
       <span style="font-size:13px">${sigEmoji(s.signal)}</span>
       <span style="color:#e0e0e0;font-family:monospace;font-size:12px;font-weight:700">${s.ticker.replace(".NS","")}</span>
       <span style="color:${c};font-size:9px;font-weight:700">${s.signal}</span>
-      <span style="color:${sc};font-size:9px;font-weight:700">${s.score||0}/9 ${scoreGrade(s.score||0)}</span>
+      <span style="color:${sc};font-size:9px;font-weight:700">${s.score||0}/12 ${scoreGrade(s.score||0)}</span>
       <span style="color:#58a6ff;font-family:monospace;font-size:10px">E ${eDisp}</span>
       <span style="color:#ff4466;font-family:monospace;font-size:10px">SL ${slDisp}</span>
       <span style="color:#00ff88;font-family:monospace;font-size:10px">T ${tDisp}</span>
@@ -540,7 +540,6 @@ function openModalWithData(data, mode) {
   const sc2 = data.scores || {};
   const confs = [
     ["EMA 5/10 Cross (5MIN)", sc2.ema_cross, `${fmt(data.ema5,1)} / ${fmt(data.ema10,1)}`],
-    ["1 Hour Trend",          sc2.hr_trend,  data.hr_trend || "—"],
     ["Nifty 50 Trend",        sc2.nifty,     "NIFTY50"],
     ["Volume 2x Average",     sc2.volume,    `${data.vol_ratio || "—"}x`],
     ["VWAP Position",         sc2.vwap,      data.vwap ? fmtRs(data.vwap) : "—"],
@@ -584,8 +583,8 @@ function generateLocalAnalysis(data, mode) {
   // Signal quality
   let q1 = "";
   if (score >= 9)      q1 = `• PERFECT setup — all 9 confluences aligned. ${isBull?"Momentum strongly bullish":"Heavy selling pressure"} on ${name}. High-conviction trade, deploy full ₹5,000 capital.`;
-  else if (score >= 7) q1 = `• STRONG signal with ${score}/9 confluences. ${sc.hr_trend?"1HR trend agrees ✓":"1HR trend not fully aligned ⚠️"}. ${sc.nifty?"Nifty supports direction ✓":"Trade against Nifty — use tight SL ⚠️"}. Use ₹2,500 (half capital).`;
-  else                 q1 = `• MODERATE setup — ${score}/9 confluences. Entry is valid but conviction is limited. Use only ₹1,250 (quarter capital) and be ready to exit fast.`;
+  else if (score >= 7) q1 = `• STRONG signal with ${score}/12 confluences.?"MACD confirms ✓":"MACD not aligned ⚠️"}. ${sc.nifty?"Nifty supports direction ✓":"Trade against Nifty — use tight SL ⚠️"}. Use ₹2,500 (half capital).`;
+  else                 q1 = `• MODERATE setup — ${score}/12 confluences. Entry is valid but conviction is limited. Use only ₹1,250 (quarter capital) and be ready to exit fast.`;
 
   // Key levels
   const rrPct  = data.entry ? Math.abs((data.target - data.entry) / data.entry * 100).toFixed(2) : "—";
@@ -598,8 +597,7 @@ function generateLocalAnalysis(data, mode) {
   if (rsi < 35)                              risks.push("RSI oversold (<" + rsi.toFixed(0) + ") — bounce possible");
   if (adx < 20)                              risks.push("ADX " + adx.toFixed(0) + " — weak trend, choppy price action likely");
   if (vol < 1.5)                             risks.push("Volume only " + vol + "x — low conviction move");
-  if (!sc.hr_trend)                          risks.push("1HR trend not aligned — counter-trend trade");
-  if (!sc.nifty)                             risks.push("Nifty trending opposite — broad market headwind");
+    if (!sc.nifty)                             risks.push("Nifty trending opposite — broad market headwind");
   if (pos.gain <= 0)                         risks.push("Brokerage kills profit on this lot size — skip!");
   if (mode === "intraday")                   risks.push("Must exit by 3:15 PM IST regardless of outcome");
   if (risks.length === 0)                    risks.push("No major red flags — clean setup");
