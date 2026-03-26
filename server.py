@@ -15,7 +15,7 @@ CORS(app, origins="*", supports_credentials=False)
 
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-SHEETS_URL = os.environ.get("SHEETS_URL", "https://script.google.com/macros/s/AKfycbw1WUV69onCVKebjcvkwk9AsdT3lThRwDsaW0ggxD-x2eSkPwIRo4nty4gVe2wSVxfbjA/exec")
+SHEETS_URL       = "https://script.google.com/macros/s/AKfycbxAIhJDoCRwhZ0f9_cSDikU9bmr7nR2ja5q5SfBendSNhlx99G4ngUG5EIe3ahjH7gUIQ/exec"
 
 CAPITAL        = 5000
 RISK_PCT       = 5
@@ -571,6 +571,9 @@ def scan(ticker):
         cost     = round(shares * entry, 2)
         max_loss = round(shares * risk_per_share + BROKERAGE, 2)
         max_gain = round(shares * abs(target - entry) - BROKERAGE, 2)
+        if max_gain <= 0:
+            return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
+                            "score": total_score, "message": "Brokerage exceeds max gain — skipped"})
 
         signal_key  = f"{ticker}_{direction}"
         now_ts      = time.time()
@@ -763,51 +766,6 @@ def auto_scan_loop():
 
 scan_thread = threading.Thread(target=auto_scan_loop, daemon=True)
 scan_thread.start()
-@app.route("/force_close_all")
-def force_close_all():
-    global active_trades
-    if not active_trades:
-        return jsonify({"message": "No active trades to close."}), 200
-
-    closed_count = 0
-    summary_msg = "🏁 <b>MARKET CLOSED: FORCE EXIT</b>\n━━━━━━━━━━━━━━\n"
-
-    for ticker in list(active_trades.keys()):
-        try:
-            trade = active_trades[ticker]
-            # Get current market price
-            df = yf.download(ticker, period="1d", interval="1m", progress=False)
-            if isinstance(df.columns, pd.MultiIndex): 
-                df.columns = df.columns.get_level_values(0)
-            
-            exit_price = round(float(df['Close'].iloc[-1]), 2)
-            entry = trade['entry']
-            shares = trade['shares']
-            signal = trade['signal']
-
-            # Calculate Profit/Loss
-            pnl = round(shares * (exit_price - entry) * (1 if signal == 'BULLISH' else -1) - BROKERAGE, 2)
-            
-            # 1. Update your Google Sheet
-            log_to_sheets({
-                "action": "update_result",
-                "ticker": ticker,
-                "result": "FORCE EOD EXIT",
-                "exit_price": exit_price,
-                "pnl": pnl
-            })
-
-            # 2. Prepare Telegram Summary
-            summary_msg += f"• <b>{ticker.replace('.NS','')}</b>: Exit Rs.{exit_price} | P&L: <b>Rs.{pnl}</b>\n"
-            
-            del active_trades[ticker]
-            closed_count += 1
-        except Exception as e:
-            print(f"Error closing {ticker}: {e}")
-
-    save_trades()
-    send_telegram(summary_msg + f"━━━━━━━━━━━━━━\nTotal Trades Closed: {closed_count}")
-    return jsonify({"status": "success", "closed": closed_count}), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000, threaded=True)
