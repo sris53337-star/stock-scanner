@@ -70,6 +70,7 @@ def load_signal_times():
 load_trades()
 load_signal_times()
 
+
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("Telegram: TOKEN or CHAT_ID missing!")
@@ -85,6 +86,14 @@ def send_telegram(message):
         print(f"Telegram sent: {r.status_code}")
     except Exception as e:
         print(f"Telegram error: {e}")
+
+def notify_restart():
+    import time as _t
+    _t.sleep(10)
+    trades = len(active_trades)
+    send_telegram("<b>Scanner Restarted</b>\nServer back online\nActive trades: " + str(trades) + "\nAuto-scan starts in 2.5 mins")
+
+threading.Thread(target=notify_restart, daemon=True).start()
 
 def log_to_sheets(data):
     try:
@@ -136,29 +145,21 @@ def compute_bb(series, period=20):
 
 def compute_supertrend(df, period=10, multiplier=3.0):
     try:
-        hl2   = (df['High'] + df['Low']) / 2
-        atr   = compute_atr(df, period)
-        upper = hl2 + multiplier * atr
-        lower = hl2 - multiplier * atr
-
+        hl2        = (df['High'] + df['Low']) / 2
+        atr        = compute_atr(df, period)
+        upper      = (hl2 + multiplier * atr).values
+        lower      = (hl2 - multiplier * atr).values
+        close      = df['Close'].values
         supertrend = [True] * len(df)
         upper_band = upper.copy()
         lower_band = lower.copy()
 
         for i in range(1, len(df)):
-            if df['Close'].iloc[i-1] <= upper_band.iloc[i-1]:
-                upper_band.iloc[i] = min(upper.iloc[i], upper_band.iloc[i-1])
-            else:
-                upper_band.iloc[i] = upper.iloc[i]
-
-            if df['Close'].iloc[i-1] >= lower_band.iloc[i-1]:
-                lower_band.iloc[i] = max(lower.iloc[i], lower_band.iloc[i-1])
-            else:
-                lower_band.iloc[i] = lower.iloc[i]
-
-            if supertrend[i-1] and df['Close'].iloc[i] < lower_band.iloc[i]:
+            upper_band[i] = min(upper[i], upper_band[i-1]) if close[i-1] <= upper_band[i-1] else upper[i]
+            lower_band[i] = max(lower[i], lower_band[i-1]) if close[i-1] >= lower_band[i-1] else lower[i]
+            if supertrend[i-1] and close[i] < lower_band[i]:
                 supertrend[i] = False
-            elif not supertrend[i-1] and df['Close'].iloc[i] > upper_band.iloc[i]:
+            elif not supertrend[i-1] and close[i] > upper_band[i]:
                 supertrend[i] = True
             else:
                 supertrend[i] = supertrend[i-1]
@@ -745,6 +746,8 @@ def auto_scan_loop():
                 _scan_running = True
                 watchlist = load_watchlist()
                 print(f"Auto-scan START: {len(watchlist)} stocks | IST {ist_hour:02d}:{ist_min:02d}")
+                if ist_hour == 9 and 30 <= ist_min < 35:
+                    send_telegram("Market Open\nScanning " + str(len(watchlist)) + " stocks every 5 mins\nExits at 3:15 PM IST")
                 for ticker in watchlist:
                     try:
                         with app.test_request_context():
