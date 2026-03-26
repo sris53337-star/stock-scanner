@@ -118,7 +118,7 @@ body { background:#060606; color:#c0c0c0; font-family:'Courier New',monospace; }
 <div class="tabs">
   <button class="tab active" id="tabIntraday" onclick="switchTab('intraday')">
     <div class="tab-label">📈 INTRADAY</div>
-    <div class="tab-sub">EMA 5/10 · 5min · 9 Confluences · Exit 3:15PM</div>
+    <div class="tab-sub">EMA 5/10 · 5min · 12 Confluences · Exit 3:15PM</div>
   </button>
   <button class="tab swing" id="tabSwing" onclick="switchTab('swing')">
     <div class="tab-label">📅 SWING</div>
@@ -187,12 +187,12 @@ body { background:#060606; color:#c0c0c0; font-family:'Courier New',monospace; }
   </div>
 
   <div class="legend">
-    <span class="legend-badge" style="background:rgba(0,255,136,0.08);color:#00ff88;border:1px solid #00ff8840">9/9 PERFECT</span><span class="legend-text">₹5,000 full capital 🔥</span>
-    <span class="legend-badge" style="background:rgba(0,170,255,0.08);color:#00aaff;border:1px solid #00aaff40">7-8/9 STRONG</span><span class="legend-text">₹2,500 half capital ✅</span>
-    <span class="legend-badge" style="background:rgba(255,136,0,0.08);color:#ff8800;border:1px solid #ff880040">6/9 MODERATE</span><span class="legend-text">₹1,250 quarter capital ⚠️</span>
+    <span class="legend-badge" style="background:rgba(0,255,136,0.08);color:#00ff88;border:1px solid #00ff8840">10+/12 PERFECT</span><span class="legend-text">₹5,000 full capital 🔥</span>
+    <span class="legend-badge" style="background:rgba(0,170,255,0.08);color:#00aaff;border:1px solid #00aaff40">9/12 STRONG</span><span class="legend-text">₹2,500 half capital ✅</span>
+    <span class="legend-badge" style="background:rgba(255,136,0,0.08);color:#ff8800;border:1px solid #ff880040">8/12 MODERATE</span><span class="legend-text">₹1,250 quarter capital ⚠️</span>
     <span class="legend-badge" style="background:rgba(255,68,102,0.08);color:#ff4466;border:1px solid #ff446640">BEARISH</span><span class="legend-text">Short setup</span>
   </div>
-  <div class="footer">📡 Intraday: 5min NSE data · 9 Confluences scoring · Click any signal for full position details + AI analysis</div>
+  <div class="footer">📡 Intraday: 5min NSE data · 12 Confluences scoring · Click any signal for full position details + AI analysis</div>
 </div>
 
 <!-- Modal -->
@@ -204,7 +204,7 @@ body { background:#060606; color:#c0c0c0; font-family:'Courier New',monospace; }
     <div class="score-ring" id="scoreRing"></div>
     <div class="trade-cards" id="tradeCards"></div>
     <div class="pos-card" id="posCard"></div>
-    <div class="sec-title">CONFLUENCE BREAKDOWN (9 FACTORS)</div>
+    <div class="sec-title">CONFLUENCE BREAKDOWN (12 FACTORS)</div>
     <div class="conf-grid" id="confGrid"></div>
     <a id="tvLink" class="tv-btn" href="#" target="_blank">📊 Open on TradingView</a>
     <div class="chart-box" id="chartBox" style="display:none">
@@ -378,7 +378,7 @@ async function fetchStock(ticker, base) {
     const sc = document.getElementById(`score-${ticker}`);
     if (score >= 6) {
       const c = scoreColor(score);
-      sc.innerHTML = `<span class="score-pill" style="background:${c}15;color:${c};border:1px solid ${c}40">${score}/9 ${scoreGrade(score)}</span>`;
+      sc.innerHTML = `<span class="score-pill" style="background:${c}15;color:${c};border:1px solid ${c}40">${score}/12 ${scoreGrade(score)}</span>`;
     } else if (score > 0) {
       sc.innerHTML = `<span style="color:#333;font-size:10px">${score}/12</span>`;
     } else {
@@ -496,7 +496,7 @@ function openModalWithData(data, mode) {
 
   document.getElementById("scoreRing").innerHTML = `
     <div>
-      <div class="score-num" style="color:${sc}">${score}<span style="font-size:18px;color:#333">/9</span></div>
+      <div class="score-num" style="color:${sc}">${score}<span style="font-size:18px;color:#333">/12</span></div>
       <div style="color:${sc};font-size:12px;font-weight:700;margin-top:2px">${scoreGrade(score)} SIGNAL</div>
     </div>
     <div>
@@ -506,7 +506,7 @@ function openModalWithData(data, mode) {
     <div style="text-align:right">
       <div style="color:#333;font-size:9px">CAPITAL TO USE</div>
       <div style="color:${sc};font-family:monospace;font-size:20px;font-weight:700">₹${cap.toLocaleString()}</div>
-      <div style="color:#333;font-size:9px">${score>=9?"100%":score>=7?"50%":score>=6?"25%":"—"} of ₹5,000</div>
+      <div style="color:#333;font-size:9px">${score>=9?"100%":score>=9?"75%":score>=8?"50%":"25%"} of ₹5,000</div>
     </div>`;
 
   document.getElementById("tradeCards").innerHTML = `
@@ -582,8 +582,8 @@ function generateLocalAnalysis(data, mode) {
 
   // Signal quality
   let q1 = "";
-  if (score >= 9)      q1 = `• PERFECT setup — all 9 confluences aligned. ${isBull?"Momentum strongly bullish":"Heavy selling pressure"} on ${name}. High-conviction trade, deploy full ₹5,000 capital.`;
-  else if (score >= 7) q1 = `• STRONG signal with ${score}/12 confluences.?"MACD confirms ✓":"MACD not aligned ⚠️"}. ${sc.nifty?"Nifty supports direction ✓":"Trade against Nifty — use tight SL ⚠️"}. Use ₹2,500 (half capital).`;
+  if (score >= 9)      q1 = `• PERFECT setup — 10+ confluences aligned. ${isBull?"Momentum strongly bullish":"Heavy selling pressure"} on ${name}. High-conviction trade, deploy full ₹5,000 capital.`;
+  else if (score >= 7) q1 = `• STRONG signal with ${score}/12 confluences. ${sc.nifty?"Nifty supports direction ✓":"Trade against Nifty — use tight SL ⚠️"}. Use ₹3,750 (75% capital).`;
   else                 q1 = `• MODERATE setup — ${score}/12 confluences. Entry is valid but conviction is limited. Use only ₹1,250 (quarter capital) and be ready to exit fast.`;
 
   // Key levels
