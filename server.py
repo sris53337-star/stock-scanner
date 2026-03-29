@@ -603,7 +603,8 @@ def scan(ticker):
                 f"{'✅' if scores['macd_hist']   else '❌'} MACD Hist {macd_hist}\n"
                 f"{'✅' if scores['cci']         else '❌'} CCI {cci_val}\n"
                 f"{'✅' if scores['consec']      else '❌'} Consecutive Candles\n"
-                f"{'✅' if scores['time_window'] else '❌'} Prime Time Window"
+                f"{'✅' if scores['time_window'] else '❌'} Prime Time Window\n"
+                f"{'✅' if scores['supertrend']  else '❌'} Supertrend {'BULL' if st_bullish else 'BEAR'}"
             )
 
             msg = (
