@@ -726,6 +726,29 @@ def backtest(ticker):
             del df
         gc.collect()
 
+@app.route("/trades")
+def get_trades():
+    return jsonify({"active_trades": active_trades, "count": len(active_trades)})
+
+@app.route("/add_trade", methods=["POST"])
+def add_trade():
+    try:
+        data = request.get_json()
+        ticker = data.get("ticker")
+        if not ticker:
+            return jsonify({"error": "ticker required"}), 400
+        active_trades[ticker] = {
+            "signal": data.get("signal"),
+            "entry":  float(data.get("entry")),
+            "sl":     float(data.get("sl")),
+            "target": float(data.get("target")),
+            "shares": int(data.get("shares"))
+        }
+        save_trades()
+        return jsonify({"status": "added", "ticker": ticker, "trade": active_trades[ticker]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/ping")
 def ping():
     return "ok"
