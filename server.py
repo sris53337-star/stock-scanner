@@ -91,7 +91,19 @@ def notify_restart():
     import time as _t
     _t.sleep(10)
     trades = len(active_trades)
-    send_telegram("<b>Scanner Restarted</b>\nServer back online\nActive trades: " + str(trades) + "\nAuto-scan starts in 2.5 mins")
+    trade_lines = ""
+    for tk, tr in active_trades.items():
+        trade_lines += f"\n• {tk.replace('.NS','')} {tr['signal']} @ Rs.{tr['entry']} | SL Rs.{tr['sl']} | T Rs.{tr['target']}"
+    msg = (
+        "<b>🔄 SCANNER RESTARTED</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "✅ Server back online\n"
+        f"📊 Open trades: {trades}"
+        + (trade_lines if trade_lines else "\nNo open trades")
+        + "\n━━━━━━━━━━━━━━━━━━━━━\n"
+        "⏰ Auto-scan starts in 2.5 mins"
+    )
+    send_telegram(msg)
 
 threading.Thread(target=notify_restart, daemon=True).start()
 
@@ -771,7 +783,19 @@ def auto_scan_loop():
                 watchlist = load_watchlist()
                 print(f"Auto-scan START: {len(watchlist)} stocks | IST {ist_hour:02d}:{ist_min:02d}")
                 if ist_hour == 9 and 30 <= ist_min < 35:
-                    send_telegram("Market Open\nScanning " + str(len(watchlist)) + " stocks every 5 mins\nExits at 3:15 PM IST")
+                    trade_lines = ""
+                    for tk, tr in active_trades.items():
+                        trade_lines += f"\n• {tk.replace('.NS','')} {tr['signal']} @ Rs.{tr['entry']} | SL Rs.{tr['sl']} | T Rs.{tr['target']}"
+                    open_msg = (
+                        "<b>🟢 MARKET OPEN — READY TO TRADE</b>\n"
+                        "━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"📡 Scanning {len(watchlist)} stocks every 5 mins\n"
+                        f"⏰ Auto-exit at 3:15 PM IST\n"
+                        "━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"📊 Open trades: {len(active_trades)}"
+                        + (trade_lines if trade_lines else "\nNo open trades")
+                    )
+                    send_telegram(open_msg)
                 for ticker in watchlist:
                     try:
                         with app.test_request_context():
