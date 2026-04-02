@@ -17,9 +17,7 @@ INFY.NS
 HCLTECH.NS
 WIPRO.NS
 TECHM.NS
-LTIM.NS
 # ── Auto (5) ──────────────────────────────────────────────────────────────────
-TATAMOTORS.NS
 MARUTI.NS
 BAJAJ-AUTO.NS
 M&M.NS
