@@ -802,7 +802,7 @@ def auto_scan_loop():
                             scan(ticker)
                     except Exception as e:
                         print(f"Auto-scan error {ticker}: {e}")
-                    time.sleep(2)
+                    time.sleep(3)
                 gc.collect()
                 _scan_running = False
                 print("Auto-scan DONE")
