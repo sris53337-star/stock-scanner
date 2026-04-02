@@ -646,7 +646,7 @@ def scan(ticker):
             now_utc = datetime.utcnow()
             log_to_sheets({
                 "date":      now_utc.strftime("%d-%b-%Y"),
-                "time":      now_utc.strftime("%H:%M"),
+                "time":      (lambda h,m: f"{(h+5+(m+30)//60)%24:02d}:{(m+30)%60:02d}")(now_utc.hour, now_utc.minute),
                 "ticker":    ticker,
                 "signal":    f"INTRADAY {direction}",
                 "score":     total_score,
