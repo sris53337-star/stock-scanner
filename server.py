@@ -70,6 +70,36 @@ def load_signal_times():
 load_trades()
 load_signal_times()
 
+def load_open_trades_from_sheets():
+    try:
+        import requests as r
+        url = SHEETS_URL.replace("/exec", "/exec") + "?action=get_open_trades"
+        resp = r.get(url, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            trades = data.get("trades", [])
+            for t in trades:
+                ticker = t.get("ticker")
+                if ticker and ticker not in active_trades:
+                    active_trades[ticker] = {
+                        "signal": t.get("signal", "").replace("INTRADAY ", ""),
+                        "entry":  float(t.get("entry", 0)),
+                        "sl":     float(t.get("sl", 0)),
+                        "target": float(t.get("target", 0)),
+                        "shares": int(t.get("shares", 1))
+                    }
+            print(f"Loaded {len(trades)} open trades from Sheets")
+            save_trades()
+    except Exception as e:
+        print(f"Could not load trades from Sheets: {e}")
+
+def delayed_sheet_load():
+    import time as _t
+    _t.sleep(15)
+    load_open_trades_from_sheets()
+
+threading.Thread(target=delayed_sheet_load, daemon=True).start()
+
 
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
