@@ -15,7 +15,7 @@ CORS(app, origins="*", supports_credentials=False)
 
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-SHEETS_URL       = "https://script.google.com/macros/s/AKfycbxAIhJDoCRwhZ0f9_cSDikU9bmr7nR2ja5q5SfBendSNhlx99G4ngUG5EIe3ahjH7gUIQ/exec"
+SHEETS_URL       = os.environ.get("SHEETS_URL", "")
 
 CAPITAL        = 5000
 RISK_PCT       = 5
@@ -694,7 +694,8 @@ def scan(ticker):
                 "vol_ratio": vol_ratio,
                 "nifty":     nifty_trend,
                 "candle":    candle_name,
-                "pdh_break": scores['pdh_pdl']
+                "pdh_break": scores['pdh_pdl'],
+                "tv_url":    "https://www.tradingview.com/chart/?symbol=NSE:" + ticker.replace(".NS", "")
             })
 
             active_trades[ticker] = {
