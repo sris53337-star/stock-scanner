@@ -1,3 +1,4 @@
+
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import yfinance as yf
@@ -72,12 +73,16 @@ load_signal_times()
 
 def load_open_trades_from_sheets():
     try:
-        import requests as r
-        url = SHEETS_URL.replace("/exec", "/exec") + "?action=get_open_trades"
-        resp = r.get(url, timeout=15)
+        if not SHEETS_URL:
+            print("SHEETS_URL not set - skipping")
+            return
+        url  = SHEETS_URL + "?action=get_open_trades"
+        resp = req.get(url, timeout=20, allow_redirects=True)
+        print(f"Sheets GET: {resp.status_code} | {resp.text[:300]}")
         if resp.status_code == 200:
-            data = resp.json()
+            data   = resp.json()
             trades = data.get("trades", [])
+            count  = 0
             for t in trades:
                 ticker = t.get("ticker")
                 if ticker and ticker not in active_trades:
@@ -88,7 +93,8 @@ def load_open_trades_from_sheets():
                         "target": float(t.get("target", 0)),
                         "shares": int(t.get("shares", 1))
                     }
-            print(f"Loaded {len(trades)} open trades from Sheets")
+                    count += 1
+            print(f"Loaded {count} open trades from Sheets")
             save_trades()
     except Exception as e:
         print(f"Could not load trades from Sheets: {e}")
