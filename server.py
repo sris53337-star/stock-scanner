@@ -464,7 +464,7 @@ def scan(ticker):
 
         print(f"SCAN {ticker} | IST {ist_hour:02d}:{ist_minute:02d} | too_early={too_early} too_late={too_late}")
 
-        df5 = yf.download(ticker, period="2d", interval="5m", progress=False)
+        df5 = yf.download(ticker, period="2d", interval="1m", progress=False)
         if isinstance(df5.columns, pd.MultiIndex):
             df5.columns = df5.columns.get_level_values(0)
         df5 = df5.dropna()
@@ -473,8 +473,8 @@ def scan(ticker):
 
         df5 = df5[['Open', 'High', 'Low', 'Close', 'Volume']].tail(100).copy()
 
-        df5['EMA5']     = compute_ema(df5['Close'], 5)
-        df5['EMA10']    = compute_ema(df5['Close'], 10)
+        df5['EMA5']     = compute_ema(df5['Close'], 20)
+        df5['EMA10']    = compute_ema(df5['Close'], 200)
         df5['RSI']      = compute_rsi(df5['Close'], 14)
         df5['ATR']      = compute_atr(df5, 14)
         df5['VWAP']     = compute_vwap(df5)
@@ -493,8 +493,8 @@ def scan(ticker):
         prev5 = df5.iloc[-2]
 
         price      = float(last5['Close'])
-        ema5       = float(last5['EMA5'])
-        ema10      = float(last5['EMA10'])
+        ema5       = float(last5['EMA5'])   # EMA20
+        ema10      = float(last5['EMA10'])  # EMA200
         rsi        = round(float(last5['RSI']), 2)
         atr_val    = round(float(last5['ATR']), 2)
         vwap_val   = round(float(last5['VWAP']), 2)
@@ -514,8 +514,8 @@ def scan(ticker):
         history_tail = [round(float(x), 2) for x in df5['Close'].tail(20).tolist()]
         candle_dir, candle_name = detect_candle_pattern(df5)
 
-        ema_bull = float(prev5['EMA5']) <= float(prev5['EMA10']) and ema5 > ema10
-        ema_bear = float(prev5['EMA5']) >= float(prev5['EMA10']) and ema5 < ema10
+        ema_bull = float(prev5['EMA5']) <= float(prev5['EMA10']) and ema5 > ema10  # EMA20 crosses above EMA200
+        ema_bear = float(prev5['EMA5']) >= float(prev5['EMA10']) and ema5 < ema10  # EMA20 crosses below EMA200
 
         del df5
         df5 = None
@@ -640,7 +640,7 @@ def scan(ticker):
             dir_emoji  = "🟢"  if direction == "BULLISH" else "🔴"
 
             conf_lines = (
-                f"{'✅' if scores['ema_cross']   else '❌'} EMA 5/10 Cross\n"
+                f"{'✅' if scores['ema_cross']   else '❌'} EMA 20/200 Cross (1MIN)\n"
                 f"{'✅' if scores['nifty']       else '❌'} Nifty {nifty_trend}\n"
                 f"{'✅' if scores['volume']      else '❌'} Volume {vol_ratio}x\n"
                 f"{'✅' if scores['vwap']        else '❌'} VWAP {'Above' if above_vwap else 'Below'}\n"
@@ -655,7 +655,7 @@ def scan(ticker):
             )
 
             msg = (
-                f"🤖 <b>DUAL EMA CROSSOVER SCANNER</b>\n"
+                f"🤖 <b>EMA 20/200 CROSSOVER SCANNER</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{dir_emoji} <b>INTRADAY {direction}</b>\n"
                 f"<b>{tv_symbol}</b> @ Rs.{round(price, 2)}\n\n"
