@@ -464,14 +464,14 @@ def scan(ticker):
 
         print(f"SCAN {ticker} | IST {ist_hour:02d}:{ist_minute:02d} | too_early={too_early} too_late={too_late}")
 
-        df5 = yf.download(ticker, period="5d", interval="5m", progress=False)
+        df5 = yf.download(ticker, period="2d", interval="5m", progress=False)
         if isinstance(df5.columns, pd.MultiIndex):
             df5.columns = df5.columns.get_level_values(0)
         df5 = df5.dropna()
         if len(df5) < 5:
             return jsonify({"error": "Not enough 5min data"}), 404
 
-        df5 = df5[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+        df5 = df5[['Open', 'High', 'Low', 'Close', 'Volume']].tail(100).copy()
 
         df5['EMA5']     = compute_ema(df5['Close'], 5)
         df5['EMA10']    = compute_ema(df5['Close'], 10)
