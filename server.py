@@ -459,22 +459,28 @@ def scan(ticker):
     df5 = None
     try:
         ist_hour, ist_minute = get_ist()
-        too_early = (ist_hour == 9 and ist_minute < 30)
+        too_early = (ist_hour == 9 and ist_minute < 45)  # Skip first 15 mins - manipulation zone
+        # Skip round number zones (institution magnets)
+        round_number = False
+        for r in [50, 100, 200, 500, 1000, 2000, 5000]:
+            if abs(price - r) / r < 0.003:  # within 0.3% of round number
+                round_number = True
+                break
         too_late  = (ist_hour > 15) or (ist_hour == 15 and ist_minute >= 15)
 
         print(f"SCAN {ticker} | IST {ist_hour:02d}:{ist_minute:02d} | too_early={too_early} too_late={too_late}")
 
-        df5 = yf.download(ticker, period="1d", interval="1m", progress=False)
+        df5 = yf.download(ticker, period="5d", interval="3m", progress=False)
         if isinstance(df5.columns, pd.MultiIndex):
             df5.columns = df5.columns.get_level_values(0)
         df5 = df5.dropna()
-        if len(df5) < 210:
-            return jsonify({"error": "Not enough 1min data"}), 404
+        if len(df5) < 370:
+            return jsonify({"error": "Not enough 3min data"}), 404
 
-        df5 = df5[['Open', 'High', 'Low', 'Close', 'Volume']].tail(400).copy()
+        df5 = df5[['Open', 'High', 'Low', 'Close', 'Volume']].tail(500).copy()
 
-        df5['EMA5']     = compute_ema(df5['Close'], 20)
-        df5['EMA10']    = compute_ema(df5['Close'], 200)
+        df5['EMA5']     = compute_ema(df5['Close'], 15)
+        df5['EMA10']    = compute_ema(df5['Close'], 360)
         df5['RSI']      = compute_rsi(df5['Close'], 14)
         df5['ATR']      = compute_atr(df5, 14)
         df5['VWAP']     = compute_vwap(df5)
@@ -516,6 +522,11 @@ def scan(ticker):
 
         ema_bull = float(prev5['EMA5']) <= float(prev5['EMA10']) and ema5 > ema10  # EMA20 crosses above EMA200
         ema_bear = float(prev5['EMA5']) >= float(prev5['EMA10']) and ema5 < ema10  # EMA20 crosses below EMA200
+
+        # Save swing high/low before deleting df5
+        lookback_df   = df5.iloc[-6:-1]
+        swing_low_raw = round(float(lookback_df['Low'].min()), 2)
+        swing_high_raw= round(float(lookback_df['High'].max()), 2)
 
         del df5
         df5 = None
@@ -576,7 +587,10 @@ def scan(ticker):
                             "score": total_score, "message": f"Score {total_score}/12 below minimum {MIN_CONFLUENCE}"})
 
         entry = round(price, 2)
-        sl    = round(price - atr_val * 2.1, 2) if direction == "BULLISH" else round(price + atr_val * 2.1, 2)
+        # Use swing high/low for SL - avoids institutional stop hunts at obvious ATR levels
+        sl_bull = round(swing_low_raw - atr_val * 0.3, 2)   # buffer below swing low
+        sl_bear = round(swing_high_raw + atr_val * 0.3, 2)  # buffer above swing high
+        sl      = sl_bull if direction == "BULLISH" else sl_bear
 
         if (ist_hour == 9 and ist_minute >= 30) or ist_hour == 10 or (ist_hour == 11 and ist_minute <= 30):
             rr_mult  = 5.0
@@ -630,7 +644,7 @@ def scan(ticker):
 
         print(f"GATE {ticker} | key_exists={signal_key in sent_signals} cooldown_ok={cooldown_ok} too_early={too_early} too_late={too_late} score={total_score}")
 
-        if signal_key not in sent_signals and cooldown_ok and not too_early and not too_late:
+        if signal_key not in sent_signals and cooldown_ok and not too_early and not too_late and not round_number:
             _signal_times[signal_key] = now_ts
             save_signal_times()
             sent_signals[signal_key] = {'signal': direction, 'score': total_score}
@@ -640,7 +654,7 @@ def scan(ticker):
             dir_emoji  = "🟢"  if direction == "BULLISH" else "🔴"
 
             conf_lines = (
-                f"{'✅' if scores['ema_cross']   else '❌'} EMA 20/200 Cross (1MIN)\n"
+                f"{'✅' if scores['ema_cross']   else '❌'} EMA 15/360 Cross (3MIN)\n"
                 f"{'✅' if scores['nifty']       else '❌'} Nifty {nifty_trend}\n"
                 f"{'✅' if scores['volume']      else '❌'} Volume {vol_ratio}x\n"
                 f"{'✅' if scores['vwap']        else '❌'} VWAP {'Above' if above_vwap else 'Below'}\n"
@@ -655,7 +669,7 @@ def scan(ticker):
             )
 
             msg = (
-                f"🤖 <b>EMA 20/200 CROSSOVER SCANNER</b>\n"
+                f"🤖 <b>EMA 15/360 CROSSOVER SCANNER</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{dir_emoji} <b>INTRADAY {direction}</b>\n"
                 f"<b>{tv_symbol}</b> @ Rs.{round(price, 2)}\n\n"
@@ -672,7 +686,7 @@ def scan(ticker):
                 f"Risk:      Rs.{max_loss}\n"
                 f"Max Gain:  Rs.{max_gain}\n"
                 f"Brokerage: Rs.{BROKERAGE}\n\n"
-                f"ATR: Rs.{atr_val} | RR: {rr_label} (SL=2.1x ATR)\n\n"
+                f"ATR: Rs.{atr_val} | RR: {rr_label} (SL=Swing High/Low)\n\n"
                 f"<a href='https://www.tradingview.com/chart/?symbol=NSE:{tv_symbol}'>📊 View on TradingView</a>\n\n"
                 f"⏰ Exit by 3:15 PM IST"
             )
