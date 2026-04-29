@@ -459,13 +459,7 @@ def scan(ticker):
     df5 = None
     try:
         ist_hour, ist_minute = get_ist()
-        too_early = (ist_hour == 9 and ist_minute < 45)  # Skip first 15 mins - manipulation zone
-        # Skip round number zones (institution magnets)
-        round_number = False
-        for r in [50, 100, 200, 500, 1000, 2000, 5000]:
-            if abs(price - r) / r < 0.003:  # within 0.3% of round number
-                round_number = True
-                break
+        too_early = (ist_hour == 9 and ist_minute < 45)
         too_late  = (ist_hour > 15) or (ist_hour == 15 and ist_minute >= 15)
 
         print(f"SCAN {ticker} | IST {ist_hour:02d}:{ist_minute:02d} | too_early={too_early} too_late={too_late}")
@@ -474,13 +468,13 @@ def scan(ticker):
         if isinstance(df5.columns, pd.MultiIndex):
             df5.columns = df5.columns.get_level_values(0)
         df5 = df5.dropna()
-        if len(df5) < 370:
+        if len(df5) < 5:
             return jsonify({"error": "Not enough 3min data"}), 404
 
-        df5 = df5[['Open', 'High', 'Low', 'Close', 'Volume']].tail(500).copy()
+        df5 = df5[['Open', 'High', 'Low', 'Close', 'Volume']].tail(100).copy()
 
-        df5['EMA5']     = compute_ema(df5['Close'], 15)
-        df5['EMA10']    = compute_ema(df5['Close'], 360)
+        df5['EMA5']     = compute_ema(df5['Close'], 9)
+        df5['EMA10']    = compute_ema(df5['Close'], 21)
         df5['RSI']      = compute_rsi(df5['Close'], 14)
         df5['ATR']      = compute_atr(df5, 14)
         df5['VWAP']     = compute_vwap(df5)
@@ -499,8 +493,8 @@ def scan(ticker):
         prev5 = df5.iloc[-2]
 
         price      = float(last5['Close'])
-        ema5       = float(last5['EMA5'])   # EMA20
-        ema10      = float(last5['EMA10'])  # EMA200
+        ema5       = float(last5['EMA5'])   # EMA9
+        ema10      = float(last5['EMA10'])  # EMA90
         rsi        = round(float(last5['RSI']), 2)
         atr_val    = round(float(last5['ATR']), 2)
         vwap_val   = round(float(last5['VWAP']), 2)
@@ -514,14 +508,16 @@ def scan(ticker):
         bb_lower   = round(float(last5['BB_L']), 2)
         above_vwap   = price > vwap_val
         st_bullish   = bool(last5["ST_BULL"])
+        # Skip round number zones - institution magnets
+        round_number = any(abs(price - r) / r < 0.003 for r in [50, 100, 200, 500, 1000, 2000, 5000])
 
         last3_c = df5['Close'].iloc[-3:].values
         last3_o = df5['Open'].iloc[-3:].values
         history_tail = [round(float(x), 2) for x in df5['Close'].tail(20).tolist()]
         candle_dir, candle_name = detect_candle_pattern(df5)
 
-        ema_bull = float(prev5['EMA5']) <= float(prev5['EMA10']) and ema5 > ema10  # EMA20 crosses above EMA200
-        ema_bear = float(prev5['EMA5']) >= float(prev5['EMA10']) and ema5 < ema10  # EMA20 crosses below EMA200
+        ema_bull = float(prev5['EMA5']) <= float(prev5['EMA10']) and ema5 > ema10  # EMA9 crosses above EMA200
+        ema_bear = float(prev5['EMA5']) >= float(prev5['EMA10']) and ema5 < ema10  # EMA9 crosses below EMA200
 
         # Save swing high/low before deleting df5
         lookback_df   = df5.iloc[-6:-1]
@@ -654,7 +650,7 @@ def scan(ticker):
             dir_emoji  = "🟢"  if direction == "BULLISH" else "🔴"
 
             conf_lines = (
-                f"{'✅' if scores['ema_cross']   else '❌'} EMA 15/360 Cross (3MIN)\n"
+                f"{'✅' if scores['ema_cross']   else '❌'} EMA 9/21 Cross (3MIN)\n"
                 f"{'✅' if scores['nifty']       else '❌'} Nifty {nifty_trend}\n"
                 f"{'✅' if scores['volume']      else '❌'} Volume {vol_ratio}x\n"
                 f"{'✅' if scores['vwap']        else '❌'} VWAP {'Above' if above_vwap else 'Below'}\n"
@@ -669,7 +665,7 @@ def scan(ticker):
             )
 
             msg = (
-                f"🤖 <b>EMA 15/360 CROSSOVER SCANNER</b>\n"
+                f"🤖 <b>EMA 9/21 CROSSOVER SCANNER</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{dir_emoji} <b>INTRADAY {direction}</b>\n"
                 f"<b>{tv_symbol}</b> @ Rs.{round(price, 2)}\n\n"
