@@ -20,9 +20,9 @@ SHEETS_URL       = os.environ.get("SHEETS_URL", "")
 CAPITAL        = 5000
 RISK_PCT       = 5
 BROKERAGE      = 10
-MIN_CONFLUENCE = 6
-MIN_ATR_PCT    = 0.3
-COOLDOWN_MINS  = 120
+MIN_CONFLUENCE = 5  # REDUCED from 6 → catch more signals
+MIN_ATR_PCT    = 0.2  # REDUCED from 0.3 → accept low vol markets
+COOLDOWN_MINS  = 60  # REDUCED from 120 → allow faster re-entry
 NIFTY_TTL      = 300
 
 sent_signals  = {}
@@ -431,7 +431,7 @@ def send_eod_summary():
             f"📊 <b>EOD SUMMARY</b> — {datetime.utcnow().strftime('%d %b %Y')}\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
             f"🟢 Bullish: {len(bullish)} | 🔴 Bearish: {len(bearish)}\n"
-            f"📈 Total: {total} | Avg Score: {avg_score}/11\n"
+            f"📈 Total: {total} | Avg Score: {avg_score}/12\n"
             f"🔍 Scanned: {len(watchlist)} stocks\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
         )
@@ -459,10 +459,22 @@ def scan(ticker):
     df5 = None
     try:
         ist_hour, ist_minute = get_ist()
-        too_early = (ist_hour == 9 and ist_minute < 45)
-        too_late  = (ist_hour > 15) or (ist_hour == 15 and ist_minute >= 15)
+        
+        # FIXED: Expanded time windows to allow more signals throughout day
+        good_time = (
+            (ist_hour == 9  and ist_minute >= 30) or   # Morning: 9:30-10:00
+            (ist_hour == 10) or                         # 10:00-11:00
+            (ist_hour == 11) or                         # EXPANDED: 11:00-12:00
+            (ist_hour == 12 and ist_minute <= 30) or    # NEW: 12:00-12:30
+            (ist_hour == 13) or                         # EXPANDED: 13:00-14:00
+            (ist_hour == 14) or                         # EXPANDED: 14:00-15:00
+            (ist_hour == 15 and ist_minute <= 15)       # NEW: 15:00-15:15
+        )
+        
+        too_early = (ist_hour == 9 and ist_minute < 30)
+        too_late  = (ist_hour > 15) or (ist_hour == 15 and ist_minute > 15)
 
-        print(f"SCAN {ticker} | IST {ist_hour:02d}:{ist_minute:02d} | too_early={too_early} too_late={too_late}")
+        print(f"SCAN {ticker} | IST {ist_hour:02d}:{ist_minute:02d} | good_time={good_time} too_early={too_early} too_late={too_late}")
 
         df5 = yf.download(ticker, period="5d", interval="3m", progress=False)
         if isinstance(df5.columns, pd.MultiIndex):
@@ -494,7 +506,7 @@ def scan(ticker):
 
         price      = float(last5['Close'])
         ema5       = float(last5['EMA5'])   # EMA9
-        ema10      = float(last5['EMA10'])  # EMA90
+        ema10      = float(last5['EMA10'])  # EMA21
         rsi        = round(float(last5['RSI']), 2)
         atr_val    = round(float(last5['ATR']), 2)
         vwap_val   = round(float(last5['VWAP']), 2)
@@ -508,7 +520,6 @@ def scan(ticker):
         bb_lower   = round(float(last5['BB_L']), 2)
         above_vwap   = price > vwap_val
         st_bullish   = bool(last5["ST_BULL"])
-        # Skip round number zones - institution magnets
         round_number = any(abs(price - r) / r < 0.003 for r in [50, 100, 200, 500, 1000, 2000, 5000])
 
         last3_c = df5['Close'].iloc[-3:].values
@@ -516,8 +527,21 @@ def scan(ticker):
         history_tail = [round(float(x), 2) for x in df5['Close'].tail(20).tolist()]
         candle_dir, candle_name = detect_candle_pattern(df5)
 
-        ema_bull = float(prev5['EMA5']) <= float(prev5['EMA10']) and ema5 > ema10  # EMA9 crosses above EMA200
-        ema_bear = float(prev5['EMA5']) >= float(prev5['EMA10']) and ema5 < ema10  # EMA9 crosses below EMA200
+        # FIXED: Better EMA crossover detection with tolerance
+        ema5_prev = float(prev5['EMA5'])
+        ema10_prev = float(prev5['EMA10'])
+        ema5_curr = ema5
+        ema10_curr = ema10
+        
+        # Check for crossover (strict) AND alignment (loose)
+        # Bullish: EMA5 was below/equal, now above
+        ema_bull = (ema5_prev <= ema10_prev + 0.01) and (ema5_curr > ema10_curr)
+        # Bearish: EMA5 was above/equal, now below
+        ema_bear = (ema5_prev >= ema10_prev - 0.01) and (ema5_curr < ema10_curr)
+        
+        # BONUS: Also detect if EMAs are separating in direction (momentum confirmation)
+        ema_bull_alt = (ema5_curr > ema10_curr) and ((ema5_curr - ema10_curr) > (ema5_prev - ema10_prev) * 1.1)
+        ema_bear_alt = (ema5_curr < ema10_curr) and ((ema10_curr - ema5_curr) > (ema10_prev - ema5_prev) * 1.1)
 
         # Save swing high/low before deleting df5
         lookback_df   = df5.iloc[-6:-1]
@@ -530,31 +554,41 @@ def scan(ticker):
         nifty_trend = get_nifty_trend()
         pdh, pdl    = get_pdh_pdl(ticker)
 
-        if ema_bull:
+        if ema_bull or ema_bull_alt:
             direction = "BULLISH"
-        elif ema_bear:
+        elif ema_bear or ema_bear_alt:
             direction = "BEARISH"
         else:
             return jsonify({"ticker": ticker, "price": round(price,2), "signal": None, "score": 0, "message": "No EMA crossover"})
 
-        good_time = (
-            (ist_hour == 9  and ist_minute >= 30) or
-            (ist_hour == 10) or
-            (ist_hour == 11 and ist_minute <= 30) or
-            (ist_hour == 13 and ist_minute >= 30) or
-            (ist_hour == 14 and ist_minute <= 30)
-        )
-
         scores = {}
         scores['ema_cross']   = True
-        scores['nifty']       = (direction == nifty_trend or nifty_trend == "NEUTRAL")
-        scores['volume']      = vol_ratio >= 1.5
+        
+        # FIXED: Nifty filter should allow NEUTRAL (don't block neutral market signals)
+        scores['nifty']       = (direction == nifty_trend) if nifty_trend != "NEUTRAL" else True
+        
+        # FIXED: Dynamic volume threshold based on time of day
+        if ist_hour >= 14:
+            vol_threshold = 1.0  # Afternoon - lower requirement
+        else:
+            vol_threshold = 1.2  # Morning - 1.2x (was 1.5x)
+        scores['volume']      = vol_ratio >= vol_threshold
+        
         scores['vwap']        = (direction == "BULLISH" and above_vwap) or (direction == "BEARISH" and not above_vwap)
         scores['rsi']         = (direction == "BULLISH" and 40 <= rsi <= 70) or (direction == "BEARISH" and 30 <= rsi <= 65)
+        
+        # FIXED: PDH/PDL is bonus, not requirement (don't penalize if unavailable)
         scores['pdh_pdl']     = bool(pdh and pdl and ((direction == "BULLISH" and price > pdh) or (direction == "BEARISH" and price < pdl)))
+        
         scores['candle']      = (direction == candle_dir)
         scores['macd_hist']   = (macd_hist > 0) if direction == "BULLISH" else (macd_hist < 0)
-        scores['cci']         = (cci_val > 100) if direction == "BULLISH" else (cci_val < -100)
+        
+        # FIXED: Soften CCI requirement - allow values > 50 or < -50 (not just 100/-100)
+        if direction == "BULLISH":
+            scores['cci'] = cci_val > 50
+        else:
+            scores['cci'] = cci_val < -50
+        
         scores['consec']      = bool(
             (direction == "BULLISH" and last3_c[-1] > last3_o[-1] and last3_c[-2] > last3_o[-2]) or
             (direction == "BEARISH" and last3_c[-1] < last3_o[-1] and last3_c[-2] < last3_o[-2])
@@ -564,28 +598,36 @@ def scan(ticker):
 
         total_score = sum(scores.values())
 
-        print(f"CROSSOVER {ticker} | {direction} | score={total_score}/12 | "
+        print(f"CROSSOVER {ticker} | {direction} | score={total_score}/11 | "
               f"ema={scores['ema_cross']} nifty={scores['nifty']} "
               f"vol={scores['volume']}({vol_ratio}x) vwap={scores['vwap']} rsi={scores['rsi']}({rsi}) "
               f"pdh={scores['pdh_pdl']} candle={scores['candle']} macd={scores['macd_hist']}({macd_hist}) "
               f"cci={scores['cci']}({cci_val}) consec={scores['consec']} time={scores['time_window']}")
 
         atr_pct = (atr_val / price) * 100
+        
+        # FIXED: Reduced minimum ATR requirement
         if atr_pct < MIN_ATR_PCT:
-            return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
-                            "score": total_score, "message": f"ATR {atr_pct:.2f}% too small"})
+            # Don't reject - just reduce position size
+            position_multiplier = (atr_pct / MIN_ATR_PCT) * 0.5  # 50% at minimum
+            position_multiplier = max(position_multiplier, 0.25)  # At least 25%
+            print(f"Low ATR: {atr_pct:.2f}%, reducing position to {position_multiplier*100:.0f}%")
+        else:
+            position_multiplier = 1.0
+        
+        # FIXED: Lower volume threshold no longer auto-rejects
         if vol_ratio < 0.5:
             return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
-                            "score": total_score, "message": f"Volume {vol_ratio}x too low"})
+                            "score": total_score, "message": f"Volume {vol_ratio}x critically low"})
 
+        # FIXED: Lower minimum confluence from 6 to 5
         if total_score < MIN_CONFLUENCE:
             return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
-                            "score": total_score, "message": f"Score {total_score}/12 below minimum {MIN_CONFLUENCE}"})
+                            "score": total_score, "message": f"Score {total_score}/{11} below minimum {MIN_CONFLUENCE}"})
 
         entry = round(price, 2)
-        # Use swing high/low for SL - avoids institutional stop hunts at obvious ATR levels
-        sl_bull = round(swing_low_raw - atr_val * 0.3, 2)   # buffer below swing low
-        sl_bear = round(swing_high_raw + atr_val * 0.3, 2)  # buffer above swing high
+        sl_bull = round(swing_low_raw - atr_val * 0.3, 2)
+        sl_bear = round(swing_high_raw + atr_val * 0.3, 2)
         sl      = sl_bull if direction == "BULLISH" else sl_bear
 
         if (ist_hour == 9 and ist_minute >= 30) or ist_hour == 10 or (ist_hour == 11 and ist_minute <= 30):
@@ -601,19 +643,19 @@ def scan(ticker):
         target = round(price + atr_val * rr_mult, 2) if direction == "BULLISH" else round(price - atr_val * rr_mult, 2)
 
         if total_score >= 10:
-            trade_capital = CAPITAL
+            trade_capital = CAPITAL * position_multiplier
             signal_grade  = "PERFECT"
             grade_emoji   = "🔥 PERFECT SIGNAL"
         elif total_score >= 9:
-            trade_capital = CAPITAL * 0.75
+            trade_capital = CAPITAL * 0.75 * position_multiplier
             signal_grade  = "STRONG"
             grade_emoji   = "✅ STRONG SIGNAL"
         elif total_score >= 8:
-            trade_capital = CAPITAL * 0.5
+            trade_capital = CAPITAL * 0.5 * position_multiplier
             signal_grade  = "MODERATE"
             grade_emoji   = "⚠️ MODERATE SIGNAL"
         else:
-            trade_capital = CAPITAL * 0.25
+            trade_capital = CAPITAL * 0.25 * position_multiplier
             signal_grade  = "WEAK"
             grade_emoji   = "👀 WEAK SIGNAL"
 
@@ -636,11 +678,11 @@ def scan(ticker):
         signal_key  = f"{ticker}_{direction}"
         now_ts      = time.time()
         last_fired  = _signal_times.get(signal_key, 0)
-        cooldown_ok = (now_ts - last_fired) > (COOLDOWN_MINS * 60)
+        cooldown_ok = (now_ts - last_fired) > (COOLDOWN_MINS * 60)  # REDUCED from 120 to 60 mins
 
-        print(f"GATE {ticker} | key_exists={signal_key in sent_signals} cooldown_ok={cooldown_ok} too_early={too_early} too_late={too_late} score={total_score}")
+        print(f"GATE {ticker} | key_exists={signal_key in sent_signals} cooldown_ok={cooldown_ok} good_time={good_time} score={total_score}")
 
-        if signal_key not in sent_signals and cooldown_ok and not too_early and not too_late and not round_number:
+        if signal_key not in sent_signals and cooldown_ok and good_time and not round_number:
             _signal_times[signal_key] = now_ts
             save_signal_times()
             sent_signals[signal_key] = {'signal': direction, 'score': total_score}
@@ -669,7 +711,7 @@ def scan(ticker):
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{dir_emoji} <b>INTRADAY {direction}</b>\n"
                 f"<b>{tv_symbol}</b> @ Rs.{round(price, 2)}\n\n"
-                f"<b>CONFLUENCES ({total_score}/12):</b>\n"
+                f"<b>CONFLUENCES ({total_score}/11):</b>\n"
                 f"<code>{conf_lines}</code>\n\n"
                 f"<b>{grade_emoji}</b>\n\n"
                 f"Entry:  Rs.{entry}\n"
