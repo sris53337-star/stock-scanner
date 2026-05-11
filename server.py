@@ -17,12 +17,17 @@ TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 SHEETS_URL       = os.environ.get("SHEETS_URL", "")
 
-CAPITAL        = 5000
-RISK_PCT       = 5
-BROKERAGE      = 10
-MIN_CONFLUENCE = 5  # REDUCED from 6 → catch more signals
-MIN_ATR_PCT    = 0.2  # REDUCED from 0.3 → accept low vol markets
-COOLDOWN_MINS  = 60  # REDUCED from 120 → allow faster re-entry
+# ===== MULTI-TIMEFRAME CONFIRMATION SETUP =====
+CAPITAL        = 10000
+RISK_PCT       = 3.0           # Rs. 300 per trade
+BROKERAGE      = 20
+MAX_LOSS_DAILY = 500
+
+MIN_CONFLUENCE = 5             # Need 5/11 on 3-min
+MIN_ATR_PCT    = 0.2
+COOLDOWN_MINS  = 90
+MIN_VOLUME_X   = 1.3
+
 NIFTY_TTL      = 300
 
 sent_signals  = {}
@@ -31,6 +36,7 @@ eod_sent_date = ""
 _signal_times = {}
 _nifty_cache  = {"trend": "NEUTRAL", "ts": 0}
 _pdh_cache    = {}
+_daily_cache  = {}  # Cache for daily data
 
 TRADES_FILE       = "active_trades.json"
 SIGNAL_TIMES_FILE = "signal_times.json"
@@ -105,7 +111,6 @@ def delayed_sheet_load():
 
 threading.Thread(target=delayed_sheet_load, daemon=True).start()
 
-
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("Telegram: TOKEN or CHAT_ID missing!")
@@ -136,7 +141,7 @@ def notify_restart():
         f"📊 Open trades: {trades}"
         + (trade_lines if trade_lines else "\nNo open trades")
         + "\n━━━━━━━━━━━━━━━━━━━━━\n"
-        "⏰ Auto-scan starts in 2.5 mins"
+        "⏰ Multi-Timeframe scanner active"
     )
     send_telegram(msg)
 
@@ -294,6 +299,42 @@ def get_pdh_pdl(ticker):
     except:
         return None, None
 
+def get_daily_ema(ticker):
+    """Get daily EMA 9 and EMA 21 for trend confirmation"""
+    today  = datetime.utcnow().strftime("%Y-%m-%d")
+    cached = _daily_cache.get(ticker)
+    if cached and cached[2] == today:
+        return cached[0], cached[1], cached[3]  # ema9, ema21, trend
+    
+    try:
+        df = yf.download(ticker, period="60d", interval="1d", progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df = df.dropna()
+        
+        if len(df) >= 21:
+            ema9  = compute_ema(df['Close'], 9)
+            ema21 = compute_ema(df['Close'], 21)
+            
+            ema9_val  = float(ema9.iloc[-1])
+            ema21_val = float(ema21.iloc[-1])
+            
+            if ema9_val > ema21_val:
+                trend = "BULLISH"
+            elif ema9_val < ema21_val:
+                trend = "BEARISH"
+            else:
+                trend = "NEUTRAL"
+            
+            _daily_cache[ticker] = (ema9_val, ema21_val, today, trend)
+            del df
+            return ema9_val, ema21_val, trend
+        
+        del df
+        return None, None, "NEUTRAL"
+    except:
+        return None, None, "NEUTRAL"
+
 def get_nifty_trend():
     now = time.time()
     if now - _nifty_cache["ts"] < NIFTY_TTL:
@@ -345,6 +386,7 @@ def monitor_trades():
                 sent_signals.clear()
                 active_trades.clear()
                 _pdh_cache.clear()
+                _daily_cache.clear()
                 _signal_times.clear()
                 save_signal_times()
                 save_trades()
@@ -431,7 +473,7 @@ def send_eod_summary():
             f"📊 <b>EOD SUMMARY</b> — {datetime.utcnow().strftime('%d %b %Y')}\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
             f"🟢 Bullish: {len(bullish)} | 🔴 Bearish: {len(bearish)}\n"
-            f"📈 Total: {total} | Avg Score: {avg_score}/12\n"
+            f"📈 Total: {total} | Avg Score: {avg_score}/11\n"
             f"🔍 Scanned: {len(watchlist)} stocks\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
         )
@@ -460,22 +502,22 @@ def scan(ticker):
     try:
         ist_hour, ist_minute = get_ist()
         
-        # FIXED: Expanded time windows to allow more signals throughout day
+        # Multi-timeframe time windows
         good_time = (
-            (ist_hour == 9  and ist_minute >= 30) or   # Morning: 9:30-10:00
+            (ist_hour == 9  and ist_minute >= 30) or   # 9:30-10:00
             (ist_hour == 10) or                         # 10:00-11:00
-            (ist_hour == 11) or                         # EXPANDED: 11:00-12:00
-            (ist_hour == 12 and ist_minute <= 30) or    # NEW: 12:00-12:30
-            (ist_hour == 13) or                         # EXPANDED: 13:00-14:00
-            (ist_hour == 14) or                         # EXPANDED: 14:00-15:00
-            (ist_hour == 15 and ist_minute <= 15)       # NEW: 15:00-15:15
+            (ist_hour == 11) or                         # 11:00-12:00
+            (ist_hour == 12 and ist_minute <= 30) or   # 12:00-12:30
+            (ist_hour == 13) or                         # 1:00-2:00 PM
+            (ist_hour == 14)                            # 2:00-3:00 PM
         )
         
         too_early = (ist_hour == 9 and ist_minute < 30)
         too_late  = (ist_hour > 15) or (ist_hour == 15 and ist_minute > 15)
 
-        print(f"SCAN {ticker} | IST {ist_hour:02d}:{ist_minute:02d} | good_time={good_time} too_early={too_early} too_late={too_late}")
+        print(f"SCAN {ticker} | IST {ist_hour:02d}:{ist_minute:02d} | good_time={good_time}")
 
+        # Download 3-minute data
         df5 = yf.download(ticker, period="5d", interval="3m", progress=False)
         if isinstance(df5.columns, pd.MultiIndex):
             df5.columns = df5.columns.get_level_values(0)
@@ -485,6 +527,7 @@ def scan(ticker):
 
         df5 = df5[['Open', 'High', 'Low', 'Close', 'Volume']].tail(100).copy()
 
+        # Calculate indicators on 3-min
         df5['EMA5']     = compute_ema(df5['Close'], 9)
         df5['EMA10']    = compute_ema(df5['Close'], 21)
         df5['RSI']      = compute_rsi(df5['Close'], 14)
@@ -505,8 +548,8 @@ def scan(ticker):
         prev5 = df5.iloc[-2]
 
         price      = float(last5['Close'])
-        ema5       = float(last5['EMA5'])   # EMA9
-        ema10      = float(last5['EMA10'])  # EMA21
+        ema5       = float(last5['EMA5'])
+        ema10      = float(last5['EMA10'])
         rsi        = round(float(last5['RSI']), 2)
         atr_val    = round(float(last5['ATR']), 2)
         vwap_val   = round(float(last5['VWAP']), 2)
@@ -527,23 +570,22 @@ def scan(ticker):
         history_tail = [round(float(x), 2) for x in df5['Close'].tail(20).tolist()]
         candle_dir, candle_name = detect_candle_pattern(df5)
 
-        # FIXED: Better EMA crossover detection with tolerance
+        # 3-min EMA crossover with tolerance
         ema5_prev = float(prev5['EMA5'])
         ema10_prev = float(prev5['EMA10'])
         ema5_curr = ema5
         ema10_curr = ema10
-        
-        # Check for crossover (strict) AND alignment (loose)
-        # Bullish: EMA5 was below/equal, now above
+
         ema_bull = (ema5_prev <= ema10_prev + 0.01) and (ema5_curr > ema10_curr)
-        # Bearish: EMA5 was above/equal, now below
         ema_bear = (ema5_prev >= ema10_prev - 0.01) and (ema5_curr < ema10_curr)
-        
-        # BONUS: Also detect if EMAs are separating in direction (momentum confirmation)
+
         ema_bull_alt = (ema5_curr > ema10_curr) and ((ema5_curr - ema10_curr) > (ema5_prev - ema10_prev) * 1.1)
         ema_bear_alt = (ema5_curr < ema10_curr) and ((ema10_curr - ema5_curr) > (ema10_prev - ema5_prev) * 1.1)
 
-        # Save swing high/low before deleting df5
+        # Get daily trend
+        daily_ema9, daily_ema21, daily_trend = get_daily_ema(ticker)
+        
+        # Save swing levels
         lookback_df   = df5.iloc[-6:-1]
         swing_low_raw = round(float(lookback_df['Low'].min()), 2)
         swing_high_raw= round(float(lookback_df['High'].max()), 2)
@@ -554,36 +596,55 @@ def scan(ticker):
         nifty_trend = get_nifty_trend()
         pdh, pdl    = get_pdh_pdl(ticker)
 
+        # 3-min signal detection
         if ema_bull or ema_bull_alt:
-            direction = "BULLISH"
+            direction_3min = "BULLISH"
         elif ema_bear or ema_bear_alt:
+            direction_3min = "BEARISH"
+        else:
+            return jsonify({"ticker": ticker, "price": round(price,2), "signal": None, "score": 0, 
+                           "message": "No 3-min EMA crossover", "daily_trend": daily_trend})
+
+        # ===== MULTI-TIMEFRAME CONFIRMATION: Check daily trend alignment =====
+        # Only trade if 3-min signal aligns with daily trend
+        if daily_trend == "BULLISH":
+            # Daily is bullish, only take BULLISH 3-min signals
+            if direction_3min != "BULLISH":
+                return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction_3min,
+                               "score": 0, "message": f"Signal {direction_3min} conflicts with daily BULLISH trend",
+                               "daily_trend": daily_trend})
+            direction = "BULLISH"
+        elif daily_trend == "BEARISH":
+            # Daily is bearish, only take BEARISH 3-min signals
+            if direction_3min != "BEARISH":
+                return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction_3min,
+                               "score": 0, "message": f"Signal {direction_3min} conflicts with daily BEARISH trend",
+                               "daily_trend": daily_trend})
             direction = "BEARISH"
         else:
-            return jsonify({"ticker": ticker, "price": round(price,2), "signal": None, "score": 0, "message": "No EMA crossover"})
+            # Daily trend neutral, take either signal
+            direction = direction_3min
 
+        # Confluence checks
         scores = {}
-        scores['ema_cross']   = True
+        scores['ema_cross']   = True  # Already confirmed above
         
-        # FIXED: Nifty filter should allow NEUTRAL (don't block neutral market signals)
         scores['nifty']       = (direction == nifty_trend) if nifty_trend != "NEUTRAL" else True
         
-        # FIXED: Dynamic volume threshold based on time of day
+        # Dynamic volume threshold
         if ist_hour >= 14:
-            vol_threshold = 1.0  # Afternoon - lower requirement
+            vol_threshold = 1.0
         else:
-            vol_threshold = 1.2  # Morning - 1.2x (was 1.5x)
+            vol_threshold = 1.2
         scores['volume']      = vol_ratio >= vol_threshold
         
         scores['vwap']        = (direction == "BULLISH" and above_vwap) or (direction == "BEARISH" and not above_vwap)
         scores['rsi']         = (direction == "BULLISH" and 40 <= rsi <= 70) or (direction == "BEARISH" and 30 <= rsi <= 65)
-        
-        # FIXED: PDH/PDL is bonus, not requirement (don't penalize if unavailable)
         scores['pdh_pdl']     = bool(pdh and pdl and ((direction == "BULLISH" and price > pdh) or (direction == "BEARISH" and price < pdl)))
-        
         scores['candle']      = (direction == candle_dir)
         scores['macd_hist']   = (macd_hist > 0) if direction == "BULLISH" else (macd_hist < 0)
         
-        # FIXED: Soften CCI requirement - allow values > 50 or < -50 (not just 100/-100)
+        # Soften CCI
         if direction == "BULLISH":
             scores['cci'] = cci_val > 50
         else:
@@ -593,71 +654,68 @@ def scan(ticker):
             (direction == "BULLISH" and last3_c[-1] > last3_o[-1] and last3_c[-2] > last3_o[-2]) or
             (direction == "BEARISH" and last3_c[-1] < last3_o[-1] and last3_c[-2] < last3_o[-2])
         )
-        scores['time_window']  = good_time
-        scores['supertrend']   = st_bullish if direction == 'BULLISH' else not st_bullish
+        scores['time_window'] = good_time
+        scores['supertrend']  = st_bullish if direction == 'BULLISH' else not st_bullish
+        
+        # Daily trend alignment as bonus confluence
+        scores['daily_align'] = (direction == daily_trend) if daily_trend != "NEUTRAL" else True
 
         total_score = sum(scores.values())
 
-        print(f"CROSSOVER {ticker} | {direction} | score={total_score}/11 | "
-              f"ema={scores['ema_cross']} nifty={scores['nifty']} "
-              f"vol={scores['volume']}({vol_ratio}x) vwap={scores['vwap']} rsi={scores['rsi']}({rsi}) "
-              f"pdh={scores['pdh_pdl']} candle={scores['candle']} macd={scores['macd_hist']}({macd_hist}) "
-              f"cci={scores['cci']}({cci_val}) consec={scores['consec']} time={scores['time_window']}")
+        print(f"MULTI-TF {ticker} | {direction} | daily={daily_trend} | score={total_score}/12 | "
+              f"3min_ema=✓ daily_align={scores.get('daily_align')} volume={vol_ratio}x rsi={rsi}")
 
         atr_pct = (atr_val / price) * 100
         
-        # FIXED: Reduced minimum ATR requirement
+        # Position multiplier for low ATR
         if atr_pct < MIN_ATR_PCT:
-            # Don't reject - just reduce position size
-            position_multiplier = (atr_pct / MIN_ATR_PCT) * 0.5  # 50% at minimum
-            position_multiplier = max(position_multiplier, 0.25)  # At least 25%
-            print(f"Low ATR: {atr_pct:.2f}%, reducing position to {position_multiplier*100:.0f}%")
+            position_multiplier = (atr_pct / MIN_ATR_PCT) * 0.5
+            position_multiplier = max(position_multiplier, 0.25)
         else:
             position_multiplier = 1.0
-        
-        # FIXED: Lower volume threshold no longer auto-rejects
+
         if vol_ratio < 0.5:
             return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
                             "score": total_score, "message": f"Volume {vol_ratio}x critically low"})
 
-        # FIXED: Lower minimum confluence from 6 to 5
         if total_score < MIN_CONFLUENCE:
             return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
-                            "score": total_score, "message": f"Score {total_score}/{11} below minimum {MIN_CONFLUENCE}"})
+                            "score": total_score, "message": f"Score {total_score}/12 below minimum {MIN_CONFLUENCE}"})
 
         entry = round(price, 2)
         sl_bull = round(swing_low_raw - atr_val * 0.3, 2)
         sl_bear = round(swing_high_raw + atr_val * 0.3, 2)
         sl      = sl_bull if direction == "BULLISH" else sl_bear
 
-        if (ist_hour == 9 and ist_minute >= 30) or ist_hour == 10 or (ist_hour == 11 and ist_minute <= 30):
-            rr_mult  = 5.0
+        # RR ratio by time
+        if ist_hour <= 11:
+            rr_mult  = 2.0
             rr_label = "1:2"
-        elif (ist_hour == 13 and ist_minute >= 30) or ist_hour == 14 or (ist_hour == 15 and ist_minute <= 15):
-            rr_mult  = 2.5
-            rr_label = "1:1"
-        else:
-            rr_mult  = 3.75
+        elif ist_hour <= 14:
+            rr_mult  = 1.5
             rr_label = "1:1.5"
+        else:
+            rr_mult  = 1.0
+            rr_label = "1:1"
 
         target = round(price + atr_val * rr_mult, 2) if direction == "BULLISH" else round(price - atr_val * rr_mult, 2)
 
         if total_score >= 10:
             trade_capital = CAPITAL * position_multiplier
             signal_grade  = "PERFECT"
-            grade_emoji   = "🔥 PERFECT SIGNAL"
+            grade_emoji   = "🔥 PERFECT"
         elif total_score >= 9:
             trade_capital = CAPITAL * 0.75 * position_multiplier
             signal_grade  = "STRONG"
-            grade_emoji   = "✅ STRONG SIGNAL"
+            grade_emoji   = "✅ STRONG"
         elif total_score >= 8:
             trade_capital = CAPITAL * 0.5 * position_multiplier
             signal_grade  = "MODERATE"
-            grade_emoji   = "⚠️ MODERATE SIGNAL"
+            grade_emoji   = "⚠️ MODERATE"
         else:
             trade_capital = CAPITAL * 0.25 * position_multiplier
             signal_grade  = "WEAK"
-            grade_emoji   = "👀 WEAK SIGNAL"
+            grade_emoji   = "👀 WEAK"
 
         risk_amount    = trade_capital * (RISK_PCT / 100)
         risk_per_share = abs(entry - sl)
@@ -673,14 +731,14 @@ def scan(ticker):
         max_gain = round(shares * abs(target - entry) - BROKERAGE, 2)
         if max_gain <= 0:
             return jsonify({"ticker": ticker, "price": round(price,2), "signal": direction,
-                            "score": total_score, "message": "Brokerage exceeds max gain — skipped"})
+                            "score": total_score, "message": "Brokerage exceeds max gain"})
 
         signal_key  = f"{ticker}_{direction}"
         now_ts      = time.time()
         last_fired  = _signal_times.get(signal_key, 0)
-        cooldown_ok = (now_ts - last_fired) > (COOLDOWN_MINS * 60)  # REDUCED from 120 to 60 mins
+        cooldown_ok = (now_ts - last_fired) > (COOLDOWN_MINS * 60)
 
-        print(f"GATE {ticker} | key_exists={signal_key in sent_signals} cooldown_ok={cooldown_ok} good_time={good_time} score={total_score}")
+        print(f"GATE {ticker} | score={total_score} | cooldown_ok={cooldown_ok} | good_time={good_time}")
 
         if signal_key not in sent_signals and cooldown_ok and good_time and not round_number:
             _signal_times[signal_key] = now_ts
@@ -692,7 +750,8 @@ def scan(ticker):
             dir_emoji  = "🟢"  if direction == "BULLISH" else "🔴"
 
             conf_lines = (
-                f"{'✅' if scores['ema_cross']   else '❌'} EMA 9/21 Cross (3MIN)\n"
+                f"{'✅' if scores['ema_cross']   else '❌'} 3-min EMA 9/21 Cross\n"
+                f"{'✅' if scores.get('daily_align') else '❌'} Daily Trend: {daily_trend}\n"
                 f"{'✅' if scores['nifty']       else '❌'} Nifty {nifty_trend}\n"
                 f"{'✅' if scores['volume']      else '❌'} Volume {vol_ratio}x\n"
                 f"{'✅' if scores['vwap']        else '❌'} VWAP {'Above' if above_vwap else 'Below'}\n"
@@ -702,16 +761,16 @@ def scan(ticker):
                 f"{'✅' if scores['macd_hist']   else '❌'} MACD Hist {macd_hist}\n"
                 f"{'✅' if scores['cci']         else '❌'} CCI {cci_val}\n"
                 f"{'✅' if scores['consec']      else '❌'} Consecutive Candles\n"
-                f"{'✅' if scores['time_window'] else '❌'} Prime Time Window\n"
-                f"{'✅' if scores['supertrend']  else '❌'} Supertrend {'BULL' if st_bullish else 'BEAR'}"
+                f"{'✅' if scores['supertrend']  else '❌'} Supertrend"
             )
 
             msg = (
-                f"🤖 <b>EMA 9/21 CROSSOVER SCANNER</b>\n"
+                f"🤖 <b>MULTI-TIMEFRAME CONFIRMATION</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
                 f"{dir_emoji} <b>INTRADAY {direction}</b>\n"
-                f"<b>{tv_symbol}</b> @ Rs.{round(price, 2)}\n\n"
-                f"<b>CONFLUENCES ({total_score}/11):</b>\n"
+                f"<b>{tv_symbol}</b> @ Rs.{round(price, 2)}\n"
+                f"Daily Trend: <b>{daily_trend}</b>\n\n"
+                f"<b>CONFLUENCES ({total_score}/12):</b>\n"
                 f"<code>{conf_lines}</code>\n\n"
                 f"<b>{grade_emoji}</b>\n\n"
                 f"Entry:  Rs.{entry}\n"
@@ -724,7 +783,7 @@ def scan(ticker):
                 f"Risk:      Rs.{max_loss}\n"
                 f"Max Gain:  Rs.{max_gain}\n"
                 f"Brokerage: Rs.{BROKERAGE}\n\n"
-                f"ATR: Rs.{atr_val} | RR: {rr_label} (SL=Swing High/Low)\n\n"
+                f"ATR: Rs.{atr_val} | RR: {rr_label}\n\n"
                 f"<a href='https://www.tradingview.com/chart/?symbol=NSE:{tv_symbol}'>📊 View on TradingView</a>\n\n"
                 f"⏰ Exit by 3:15 PM IST"
             )
@@ -732,27 +791,27 @@ def scan(ticker):
 
             now_utc = datetime.utcnow()
             log_to_sheets({
-                "date":      now_utc.strftime("%d-%b-%Y"),
-                "time":      (lambda h,m: f"{(h+5+(m+30)//60)%24:02d}:{(m+30)%60:02d}")(now_utc.hour, now_utc.minute),
-                "ticker":    ticker,
-                "signal":    f"INTRADAY {direction}",
-                "score":     total_score,
-                "grade":     signal_grade,
-                "entry":     entry,
-                "sl":        sl,
-                "target":    target,
-                "shares":    shares,
-                "capital":   trade_capital,
-                "cost":      cost,
-                "max_loss":  max_loss,
-                "max_gain":  max_gain,
-                "rsi":       rsi,
-                "adx":       adx_val,
-                "vol_ratio": vol_ratio,
-                "nifty":     nifty_trend,
-                "candle":    candle_name,
-                "pdh_break": scores['pdh_pdl'],
-                "tv_url":    "https://www.tradingview.com/chart/?symbol=NSE:" + ticker.replace(".NS", "")
+                "date":         now_utc.strftime("%d-%b-%Y"),
+                "time":         (lambda h,m: f"{(h+5+(m+30)//60)%24:02d}:{(m+30)%60:02d}")(now_utc.hour, now_utc.minute),
+                "ticker":       ticker,
+                "signal":       f"INTRADAY {direction}",
+                "daily_trend":  daily_trend,
+                "score":        total_score,
+                "grade":        signal_grade,
+                "entry":        entry,
+                "sl":           sl,
+                "target":       target,
+                "shares":       shares,
+                "capital":      trade_capital,
+                "cost":         cost,
+                "max_loss":     max_loss,
+                "max_gain":     max_gain,
+                "rsi":          rsi,
+                "adx":          adx_val,
+                "vol_ratio":    vol_ratio,
+                "nifty":        nifty_trend,
+                "candle":       candle_name,
+                "tv_url":       "https://www.tradingview.com/chart/?symbol=NSE:" + ticker.replace(".NS", "")
             })
 
             active_trades[ticker] = {
@@ -765,23 +824,24 @@ def scan(ticker):
             save_trades()
 
         return jsonify({
-            "ticker":      ticker,
-            "price":       round(price, 2),
-            "signal":      direction,
-            "score":       total_score,
-            "grade":       signal_grade,
-            "rsi":         rsi,
-            "adx":         adx_val,
-            "vwap":        round(vwap_val, 2),
-            "atr":         atr_val,
-            "vol_ratio":   vol_ratio,
-            "nifty_trend": nifty_trend,
-            "candle":      candle_name,
-            "scores":      {k: bool(v) for k, v in scores.items()},
-            "entry":       entry,
-            "sl":          sl,
-            "target":      target,
-            "history":     history_tail
+            "ticker":       ticker,
+            "price":        round(price, 2),
+            "signal":       direction,
+            "daily_trend":  daily_trend,
+            "score":        total_score,
+            "grade":        signal_grade,
+            "rsi":          rsi,
+            "adx":          adx_val,
+            "vwap":         round(vwap_val, 2),
+            "atr":          atr_val,
+            "vol_ratio":    vol_ratio,
+            "nifty_trend":  nifty_trend,
+            "candle":       candle_name,
+            "scores":       {k: bool(v) for k, v in scores.items()},
+            "entry":        entry,
+            "sl":           sl,
+            "target":       target,
+            "history":      history_tail
         })
 
     except Exception as e:
@@ -858,7 +918,7 @@ _scan_running = False
 def auto_scan_loop():
     global _scan_running
     time.sleep(150)
-    print("Auto-scan loop started.")
+    print("Auto-scan loop started - MULTI-TIMEFRAME MODE")
     while True:
         try:
             ist_hour, ist_min = get_ist()
@@ -875,7 +935,7 @@ def auto_scan_loop():
                     for tk, tr in active_trades.items():
                         trade_lines += f"\n• {tk.replace('.NS','')} {tr['signal']} @ Rs.{tr['entry']} | SL Rs.{tr['sl']} | T Rs.{tr['target']}"
                     open_msg = (
-                        "<b>🟢 MARKET OPEN — READY TO TRADE</b>\n"
+                        "<b>🟢 MARKET OPEN — MULTI-TIMEFRAME SCANNER READY</b>\n"
                         "━━━━━━━━━━━━━━━━━━━━━\n"
                         f"📡 Scanning {len(watchlist)} stocks every 5 mins\n"
                         f"⏰ Auto-exit at 3:15 PM IST\n"
